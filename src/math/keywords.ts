@@ -1,85 +1,232 @@
 import { cmd, type MNode, sym } from './model';
 
-// Typed shortcuts, in the spirit of the original GaussNotes keyword table.
-// Word keywords convert on space (or when a non-letter is typed after them);
-// symbol sequences in AUTO convert as soon as they are typed.
+// Typed shortcuts, ported from the original GaussNotes keyword table (names,
+// aliases and auto-aliases all included). With instant keywords on, a keyword
+// converts as soon as it's typed, unless a longer keyword starts with it, in
+// which case it waits for the next character. Otherwise keywords convert on
+// space/Tab.
 
-type Make = () => MNode | MNode[];
+/** What a keyword inserts, and where the cursor goes: into the first empty slot by default. */
+export interface KW {
+  nodes: MNode[];
+  /** 'after': cursor after the nodes. [node, slot, offset]: a specific spot. */
+  at?: 'after' | [number, number, number];
+}
+type Make = () => KW;
 const K = new Map<string, Make>();
-const def = (names: string, make: Make) => names.split(' ').forEach((n) => K.set(n, make));
+
+const def = (names: string, make: () => MNode | MNode[] | KW) =>
+  names.split(' ').forEach((n) =>
+    K.set(n, () => {
+      const r = make();
+      return Array.isArray(r) ? { nodes: r } : 'nodes' in r ? r : { nodes: [r] };
+    }),
+  );
 const s = (tex: string) => () => sym(tex);
+const op = (tex: string) => (): KW => ({ nodes: [cmd('operatorname', 1, { slots: [[...tex].map(sym)] })], at: 'after' });
 const delim = (open: string, close: string) => () => cmd('delim', 1, { open, close });
+const wrap = (name: string) => () => cmd(name);
+const filled = (name: string, tex: string): Make => () => ({ nodes: [cmd(name, 1, { slots: [[sym(tex)]] })], at: 'after' });
+const limits = (tex: string, sup = true) => () => (sup ? [sym(tex), cmd('sub'), cmd('sup')] : [sym(tex), cmd('sub')]);
+const derivative = (d: string) => (): KW => ({
+  nodes: [cmd('frac', 2, { slots: [[sym(d)], [sym(d)]] })],
+  at: [0, 0, 1], // after the d in the numerator
+});
 
-const GREEK = 'alpha beta gamma delta epsilon varepsilon zeta eta theta vartheta iota kappa lambda mu nu xi pi varpi rho varrho sigma varsigma tau upsilon phi varphi chi psi omega Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega';
-GREEK.split(' ').forEach((g) => def(g, s('\\' + g)));
-def('eps', s('\\varepsilon'));
+// Greek. The original used doubled spellings (pii, xii, psii) to dodge prefix clashes; both work here.
+for (const g of 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi pi rho sigma tau upsilon phi chi psi omega Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega varepsilon vartheta varpi varrho varsigma varphi'.split(' '))
+  def(g, s('\\' + g));
+def('xii', s('\\xi'));
+def('pii', s('\\pi'));
+def('psii', s('\\psi'));
+def('vepsilon eps', s('\\varepsilon'));
+def('vtheta', s('\\vartheta'));
+def('vpii vpi', s('\\varpi'));
+def('vrho', s('\\varrho'));
+def('vsigma', s('\\varsigma'));
+def('vphi', s('\\varphi'));
+def('laplacian lap', s('\\Delta'));
 
-const PLAIN = 'sum prod coprod int iint iiint oint lim limsup liminf max min sup inf det gcd sin cos tan sec csc cot arcsin arccos arctan sinh cosh tanh log ln exp dim ker deg arg hom Pr cdot cdots ldots vdots ddots times div pm mp circ ast star oplus otimes odot wedge vee cup cap setminus subset subseteq supset supseteq in notin ni emptyset varnothing forall exists nexists neg leq geq neq approx equiv sim simeq cong propto perp parallel mid to mapsto implies iff Rightarrow Leftarrow Leftrightarrow leftarrow rightarrow leftrightarrow uparrow downarrow ll gg nabla partial hbar ell Re Im aleph angle prime infty dagger bullet top bot vdash models langle rangle quad qquad';
-PLAIN.split(' ').forEach((n) => def(n, s('\\' + n)));
+// Logic, sets, relations.
+def('nEE nexists', s('\\nexists'));
+def('EE exists', s('\\exists'));
+def('AA forall', s('\\forall'));
+def('grad nabla', s('\\nabla'));
+def('del partial', s('\\partial'));
+def('inn in', s('\\in'));
+def('ninn notin', s('\\notin'));
+def('ni', s('\\ni'));
+def('notni', s('\\notni'));
+def('subs subset', s('\\subset'));
+def('sub= subseteq subeq subset=', s('\\subseteq'));
+def('sups supset', s('\\supset'));
+def('sups= supseteq supeq supset=', s('\\supseteq'));
+def('nsubseteq', s('\\nsubseteq'));
+def('nsupseteq', s('\\nsupseteq'));
+def('empty emptyset varnothing', s('\\varnothing'));
+def('cup union', s('\\cup'));
+def('cap intersection', s('\\cap'));
+def('u++ unionplus uplus', s('\\uplus'));
+def('sqcup', s('\\sqcup'));
+def('and wedge', s('\\wedge'));
+def('orr or vee', s('\\vee'));
+def('larr leftarrow larrow gets', s('\\leftarrow'));
+def('rarr rightarrow rarrow too to', s('\\to'));
+def('neq not=', s('\\neq'));
+def('approx', s('\\approx'));
+def('~= cong', s('\\cong'));
+def('-= equiv', s('\\equiv'));
+def('propto', s('\\propto'));
+def('sim', s('\\sim'));
+def('iff ifandonlyif lrarr lrarrow leftrightarrow', s('\\iff'));
+def('geq', s('\\geq'));
+def('leq', s('\\leq'));
+def('gg', s('\\gg'));
+def('ll', s('\\ll'));
+def('implies', s('\\Rightarrow'));
+def('impliedby', s('\\Leftarrow'));
+def('mapsto', s('\\mapsto'));
+def('follow leadsto', s('\\leadsto'));
+def('perp', s('\\perp'));
+def('TT top', s('\\top'));
+def('parallel', s('\\parallel'));
 
-def('oo infinity', s('\\infty'));
-def('xx', s('\\times'));
-def('del', s('\\partial'));
-def('grad', s('\\nabla'));
-def('inn', s('\\in'));
-def('ninn', s('\\notin'));
-def('subs', s('\\subset'));
-def('empty', s('\\varnothing'));
-def('AA', s('\\forall'));
-def('EE', s('\\exists'));
-def('and', s('\\wedge'));
-def('orr', s('\\vee'));
-def('larr gets', s('\\leftarrow'));
-def('rarr', s('\\rightarrow'));
-def('lap', s('\\Delta'));
-for (const L of 'N Z Q R C H F P E'.split(' ')) def(L + L, s(`\\mathbb{${L}}`));
+// Operators and constants.
+def('oo infinity infty', s('\\infty'));
+def('aleph', s('\\aleph'));
+def('xx times', s('\\times'));
+def('cdot', s('\\cdot'));
+def('cdots', s('\\cdots'));
+def('vdots', s('\\vdots'));
+def('ddots', s('\\ddots'));
+def('circ', s('\\circ'));
+def('ast', s('\\ast'));
+def('star', s('\\star'));
+def('o++ oplus', s('\\oplus'));
+def('o.. odot', s('\\odot'));
+def('oxx otimes', s('\\otimes'));
+def('+- pm', s('\\pm'));
+def('-+ mp', s('\\mp'));
+def('dag dagger', s('\\dagger'));
+def('hbar', s('\\hbar'));
+def('ell', s('\\ell'));
+def('jhat', s('\\hat{\\jmath}'));
+def('ihat', s('\\hat{\\imath}'));
+def('NN natural', s('\\mathbb{N}'));
+def('ZZ integer', s('\\mathbb{Z}'));
+def('QQ rational', s('\\mathbb{Q}'));
+def('RR real', s('\\mathbb{R}'));
+def('CC complex', s('\\mathbb{C}'));
+def('HH quaternion', s('\\mathbb{H}'));
+def('FF', s('\\mathbb{F}'));
+def('PP', s('\\mathbb{P}'));
+def('Exp expectation', s('\\mathbb{E}'));
 
+// Functions.
+for (const f of 'ln exp sin cos tan cot sec csc sinh cosh tanh coth det dim ker gcd arg deg inf max min'.split(' ')) def(f, s('\\' + f));
+def('asin arcsin', s('\\arcsin'));
+def('acos arccos', s('\\arccos'));
+def('atan arctan', s('\\arctan'));
+def('supp sup', s('\\sup'));
+def('tr trace', op('tr'));
+for (const f of 'rank sgn span lcm mod im Im Re'.split(' ')) def(f, op(f));
+def('card cardinal', op('card'));
+def('log', limits('\\log', false));
+def('lim', limits('\\lim', false));
+def('limsup', limits('\\limsup', false));
+def('liminf', limits('\\liminf', false));
+
+// Big operators come with empty limit slots to fill.
+for (const [names, tex] of [
+  ['sum', 'sum'], ['prod', 'prod'], ['coprod', 'coprod'], ['int', 'int'], ['iint', 'iint'], ['iiint', 'iiint'],
+  ['oint', 'oint'], ['oiint', 'oiint'], ['oiiint', 'oiiint'], ['Cup bigcup', 'bigcup'], ['Cap bigcap', 'bigcap'],
+  ['U++ biguplus', 'biguplus'], ['Vee bigvee', 'bigvee'], ['And bigwedge', 'bigwedge'], ['Sqcup bigsqcup', 'bigsqcup'],
+  ['O++ bigoplus', 'bigoplus'], ['Oxx Ox bigotimes', 'bigotimes'], ['O.. bigodot', 'bigodot'],
+] as const)
+  def(names, limits('\\' + tex));
+
+// Structures.
+def('td tt tothe power pow', wrap('sup'));
+def('subscript', wrap('sub'));
+K.set('sr', filled('sup', '2'));
+K.set('cb', filled('sup', '3'));
 def('frac', () => cmd('frac', 2));
-def('binom choose', () => cmd('binom', 2));
-def('sqrt', () => cmd('sqrt'));
-def('root', () => cmd('root', 2));
-def('text', () => cmd('text'));
-for (const a of 'hat bar vec dot ddot tilde widehat overline underline mathbf mathcal mathbb mathrm mathfrak boldsymbol boxed operatorname'.split(' ')) def(a, () => cmd(a));
-def('bf', () => cmd('mathbf'));
-def('cal', () => cmd('mathcal'));
-def('bb', () => cmd('mathbb'));
-def('overset', () => cmd('overset', 2));
-def('underset', () => cmd('underset', 2));
-def('abs', delim('|', '|'));
-def('norm', delim('\\|', '\\|'));
-def('ang', delim('\\langle', '\\rangle'));
+def('binom choose nCr', () => cmd('binom', 2));
+def('sqrt', wrap('sqrt'));
+def('rt root', () => cmd('root', 2));
+def('tend', () => cmd('xrightarrow', 2));
+K.set('ddx', derivative('d'));
+K.set('ddel', derivative('\\partial'));
+def('hat', wrap('widehat'));
+def('bar', wrap('bar'));
+def('vec', wrap('overrightarrow'));
+def('dot', wrap('dot'));
+def('ddot', wrap('ddot'));
+def('tilde', wrap('widetilde'));
+def('overline', wrap('overline'));
+def('underline', wrap('underline'));
+def('overbrace', () => [cmd('overbrace'), cmd('sup')]);
+def('underbrace', () => [cmd('underbrace'), cmd('sub')]);
+def('bf bold', wrap('mathbf'));
+def('fk frak', wrap('mathfrak'));
+def('rm roman', wrap('mathrm'));
+def('txt text', wrap('text'));
+def('bb blackboard', wrap('mathbb'));
+def('cal calligraphy', wrap('mathcal'));
+for (const c of ['red', 'blue', 'green', 'yellow']) def(c, () => cmd('textcolor', 1, { env: c }));
+def('abs lvert', delim('|', '|'));
+def('bracket lbracket', delim('[', ']'));
+def('norm lVert llvert', delim('\\|', '\\|'));
 def('bra', delim('\\langle', '|'));
 def('ket', delim('|', '\\rangle'));
-def('ceil', delim('\\lceil', '\\rceil'));
-def('floor', delim('\\lfloor', '\\rfloor'));
+def('ang angle langle', delim('\\langle', '\\rangle'));
+def('flr floor', delim('\\lfloor', '\\rfloor'));
+def('ciel ceil', delim('\\lceil', '\\rceil'));
+def('quad', s('\\quad'));
+def('qquad', s('\\qquad'));
 
 const MATRIX = /^(p|b|v|B|V)?(mat|sys)(\d)(?:x(\d))?$/;
 
-// Operators that take limits come with empty sub/superscript slots to fill.
-const BOTH = 'sum prod coprod int iint iiint oint bigcup bigcap bigoplus bigotimes';
-const SUB_ONLY = 'lim limsup liminf max min';
-BOTH.split(' ').forEach((n) => K.set(n, () => [sym('\\' + n), cmd('sub'), cmd('sup')]));
-SUB_ONLY.split(' ').forEach((n) => K.set(n, () => [sym('\\' + n), cmd('sub')]));
+// Too often ordinary letters (x in A, f to g…) to convert without space/Tab.
+const NO_AUTO = new Set(['in', 'to', 'or', 'ni', 'notni', 'im', 'ell']);
+// Convert at once even though longer keywords start with them: the longer ones are mostly
+// spelled-out aliases (int → integer, tr → trace). \limsup etc. remain typeable with a backslash.
+const EAGER = new Set(['lim', 'int', 'exp', 'card', 'tr', 'pow', 'union', 'cal', 'dag', 'empty', 'larr', 'rarr', 'lrarr', 'ang', 'Ox', 'lap']);
+const MATRIX_PREFIX = /^[pbvBV]?(m|ma|mat|s|sy|sys)$/;
 
-// Words that read as ordinary variable products too often to convert on their own.
-const NO_AUTO = new Set(['xx', 'and', 'orr', 'to', 'in', 'inn', 'ni', 'mid', 'Re', 'Im', 'top', 'bot', 'ell', 'arg', 'deg', 'dim', 'ker', 'hom']);
+const waits = (name: string) => {
+  if (EAGER.has(name)) return false;
+  for (const k of K.keys()) if (k !== name && k.startsWith(name)) return true;
+  return false;
+};
 
-/** Keyword for `name` if it should convert as soon as it's typed: no longer keyword starts with it. */
-export function autoKeyword(name: string): MNode | MNode[] | null {
-  if (name.length < 2 || NO_AUTO.has(name)) return null;
-  if (/^[pbvBV]?(m|ma|mat|s|sy|sys)$/.test(name)) return null; // could still become pmat2x2 / sys2
-  for (const k of K.keys()) if (k !== name && k.startsWith(name)) return null;
+/** Keyword for `name` if it should convert as soon as it's typed. */
+export function autoKeyword(name: string): KW | null {
+  if (name.length < 2 || NO_AUTO.has(name) || MATRIX_PREFIX.test(name) || waits(name)) return null;
   return keyword(name);
 }
 
-/** A keyword that was waiting (sin, lim…) and can no longer grow once `next` is typed after it. */
+/** A keyword that was waiting (sin, del…) and can no longer grow once `next` is typed after it. */
 export function settledKeyword(word: string, next: string): boolean {
-  if (word.length < 2 || NO_AUTO.has(word) || !K.has(word) || /^[pbvBV]?(m|ma|mat|s|sy|sys)$/.test(word)) return false;
-  for (const k of K.keys()) if (k.startsWith(word + next)) return false;
-  return true;
+  if (word.length < 2 || NO_AUTO.has(word) || !K.has(word) || MATRIX_PREFIX.test(word)) return false;
+  return !isKeywordPrefix(word + next);
 }
 
-export function keyword(name: string): MNode | MNode[] | null {
+/** True if some keyword starts with `prefix` (so what's being typed may still become it). */
+export const isKeywordPrefix = (prefix: string) => [...K.keys()].some((k) => k.startsWith(prefix));
+
+/** Length of the longest suffix of `word` that some keyword starts with: the word still being typed. */
+export function growingSuffix(word: string): number {
+  for (let len = word.length; len > 0; len--) if (isKeywordPrefix(word.slice(word.length - len))) return len;
+  return 0;
+}
+
+/** Keywords containing symbols (u++, sub=, not=…) convert the moment they're complete. */
+export function symbolKeyword(name: string): KW | null {
+  return /[^a-zA-Z]/.test(name) && K.has(name) ? keyword(name) : null;
+}
+
+export function keyword(name: string): KW | null {
   const make = K.get(name);
   if (make) return make();
   const m = MATRIX.exec(name);
@@ -88,14 +235,15 @@ export function keyword(name: string): MNode | MNode[] | null {
     const cols = m[4] ? +m[4] : m[2] === 'sys' ? 2 : rows;
     const env = m[2] === 'sys' ? 'cases' : (m[1] ?? '') + 'matrix';
     if (rows < 1 || cols < 1) return null;
-    return cmd('matrix', rows * cols, { env, cols });
+    return { nodes: [cmd('matrix', rows * cols, { env, cols })] };
   }
   return null;
 }
 
-/** Symbol sequences that convert immediately, longest first. */
+/** Symbol sequences that convert immediately, longest first (always on, like the original's +-, <=, =>). */
 export const AUTO: [string[], string][] = [
   [['.', '.', '.'], '\\ldots'],
+  [['\\leq', '>'], '\\iff'], // <=>
   [['<', '='], '\\leq'],
   [['>', '='], '\\geq'],
   [['!', '='], '\\neq'],
@@ -104,6 +252,7 @@ export const AUTO: [string[], string][] = [
   [['+', '-'], '\\pm'],
   [['-', '+'], '\\mp'],
   [['\\sim', '\\sim'], '\\approx'],
+  [['\\sim', '='], '\\cong'],
   [['<', '<'], '\\ll'],
   [['>', '>'], '\\gg'],
 ];

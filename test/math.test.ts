@@ -61,11 +61,46 @@ describe('typing', () => {
     expect(type('delta').tex).toBe('\\delta');
     expect(type('sinh').tex).toBe('\\sinh');
     expect(type('sin(x)').tex).toBe('\\sin\\left( x \\right)');
-    expect(type('xx').tex).toBe('xx');
+    expect(type('axxb').tex).toBe('a\\times b');
     expect(type('sinx').tex).toBe('\\sin x');
     expect(type('limx->0').tex).toBe('\\lim_{x\\to0}');
     expect(type('pmat2x2').tex).toBe('pmat2x2'); // matrices still finish with space
     expect(type('a pm b').tex).toBe('a\\pm b');
+  });
+  it('GaussNotes shortcuts', () => {
+    expect(type('xsr+ycb').tex).toBe('x^{2}+y^{3}');
+    expect(type('etd2').tex).toBe('e^{2}');
+    expect(type('ett2').tex).toBe('e^{2}');
+    expect(type('ddxf').tex).toBe('\\frac{df}{d}');
+    expect(type('ddelf').tex).toBe('\\frac{\\partial f}{\\partial}');
+    expect(type('pii+xii+psii').tex).toBe('\\pi+\\xi+\\psi');
+    expect(type('pir').tex).toBe('\\pi r');
+    expect(type('Asub=B').tex).toBe('A\\subseteq B');
+    expect(type('Au++B').tex).toBe('A\\uplus B');
+    expect(type('anot=b').tex).toBe('a\\neq b');
+    expect(type('a<=>b').tex).toBe('a\\iff b');
+    expect(type('||v').tex).toBe('\\left\\| v \\right\\|');
+    expect(type('trA').tex).toBe('\\operatorname{tr}A');
+    expect(type('AAxEEy').tex).toBe('\\forall x\\exists y');
+    expect(type('NN+ZZ+QQ').tex).toBe('\\mathbb{N}+\\mathbb{Z}+\\mathbb{Q}');
+    expect(type('vecv').tex).toBe('\\overrightarrow{v}');
+    expect(type('redx').tex).toBe('\\textcolor{red}{x}');
+    expect(type('tend').tex).toBe('\\xrightarrow[]{}');
+    expect(type('logx').tex).toBe('\\log_{x}');
+    expect(type('vartheta+rt').tex).toBe('\\vartheta+\\sqrt[]{}');
+    expect(type('sinhx').tex).toBe('\\sinh x');
+    expect(type('cdots').tex).toBe('\\cdots');
+  });
+  it('a fraction after lim leaves the limit alone', () => {
+    const r = type('limx->0');
+    const out = moveRight(r.root, r.c)!; // step out of the subscript
+    let c = out;
+    for (const ch of '1/') c = typeChar(r.root, c, ch);
+    expect(toTex(r.root)).toBe('\\lim_{x\\to0}\\frac{1}{}');
+    c = typeChar(r.root, { path: [], off: 2 }, '/'); // '/' straight after the limit
+    expect(toTex(r.root)).toBe('\\lim_{x\\to0}\\frac{}{}\\frac{1}{}');
+    // ...while a term with an exponent goes into the numerator whole.
+    expect(type('x^2 /').tex).toBe('\\frac{x^{2}}{}');
   });
   it('big operators come with limit slots', () => {
     const r = type('sum');

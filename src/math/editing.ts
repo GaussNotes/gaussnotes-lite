@@ -1,4 +1,4 @@
-import { AUTO, autoKeyword, keyword, settledKeyword } from './keywords';
+import { AUTO, autoKeyword, growingSuffix, isKeywordPrefix, keyword, type KW, settledKeyword, symbolKeyword } from './keywords';
 import { type Cmd, type Cursor, clone, cmd, isEmptyCmd, isLetter, isOperand, isScript, isTextRow, type MNode, ownerOf, type Row, rowAt, type Step, sym } from './model';
 
 export const settings = {
@@ -85,14 +85,40 @@ function letterRun(root: Row, c: Cursor): number {
   return c.off - i;
 }
 
-/** Replace row[from..cursor) with `nodes`; the cursor goes into the first structure, else after them. */
-function place(root: Row, c: Cursor, nodes: MNode | MNode[], from: number): Cursor {
-  const list = Array.isArray(nodes) ? nodes : [nodes];
+/** Trailing run of single-character symbols (letters and punctuation, not digits) before the cursor. */
+function charRun(root: Row, c: Cursor): number {
   const row = rowAt(root, c.path);
-  row.splice(from, c.off - from, ...list);
-  const i = list.findIndex((n) => n.k === 'cmd');
-  if (i >= 0) return enter(list[i] as Cmd, c.path, from + i, 0, false);
-  return at(c.path, from + list.length);
+  let i = c.off;
+  while (i > 0) {
+    const n = row[i - 1];
+    if (n.k !== 'sym' || n.tex.length !== 1 || /[0-9\\]/.test(n.tex)) break;
+    i--;
+  }
+  return c.off - i;
+}
+
+const text = (row: Row, from: number, to: number) => row.slice(from, to).map((x) => (x as { tex: string }).tex).join('');
+
+/** Replace row[from..cursor) with a keyword's nodes and put the cursor where the keyword says. */
+function place(root: Row, c: Cursor, kw: KW | MNode, from: number): Cursor {
+  const { nodes, at: where } = 'nodes' in kw ? kw : { nodes: [kw], at: undefined };
+  const row = rowAt(root, c.path);
+  row.splice(from, c.off - from, ...nodes);
+  if (where === 'after') return at(c.path, from + nodes.length);
+  if (where) return at([...c.path, [from + where[0], where[1]]], where[2]);
+  const i = nodes.findIndex((n) => n.k === 'cmd');
+  if (i >= 0) return enter(nodes[i] as Cmd, c.path, from + i, 0, false);
+  return at(c.path, from + nodes.length);
+}
+
+function instantSymbols(root: Row, c: Cursor): Cursor | null {
+  const row = rowAt(root, c.path);
+  const n = charRun(root, c);
+  for (let len = Math.min(n, 8); len >= 2; len--) {
+    const kw = symbolKeyword(text(row, c.off - len, c.off));
+    if (kw) return place(root, c, kw, c.off - len);
+  }
+  return null;
 }
 
 function instantWord(root: Row, c: Cursor): Cursor | null {
@@ -100,12 +126,21 @@ function instantWord(root: Row, c: Cursor): Cursor | null {
   const n = letterRun(root, c);
   const before = row[c.off - n - 1];
   if (before?.k === 'sym' && before.tex === '\\') return null; // explicit \command: wait for space
-  const word = row.slice(c.off - n, c.off).map((x) => (x as { tex: string }).tex).join('');
-  for (let len = n; len >= 2; len--) {
-    const node = autoKeyword(word.slice(n - len));
-    if (node) return place(root, c, node, c.off - len);
+  const word = text(row, c.off - n, c.off);
+  // Don't fire a short keyword inside a longer word still being typed (rt inside vartheta).
+  const min = Math.max(2, growingSuffix(word));
+  for (let len = n; len >= min; len--) {
+    const kw = autoKeyword(word.slice(n - len));
+    if (kw) return place(root, c, kw, c.off - len);
   }
   return null;
+}
+
+/** A waiting keyword at the end of `word` that `next` rules out (sin + x), unless a longer word is still growing. */
+function settledSuffix(word: string, next: string): number {
+  const growing = growingSuffix(word + next) - 1; // part of `word` that continues with `next`
+  for (let len = word.length; len >= 2 && len > growing; len--) if (settledKeyword(word.slice(word.length - len), next)) return len;
+  return 0;
 }
 
 /** Convert the word before the cursor into a keyword. `anySuffix` allows "xalpha" → x·α. */
@@ -128,12 +163,17 @@ export function completeWord(root: Row, c: Cursor, anySuffix: boolean): Cursor |
     const node = m && keyword(m[0]);
     if (node) return place(root, c, node, c.off - m[0].length);
   }
-  for (let len = n; len >= (anySuffix ? 2 : n); len--) {
-    if (!len) break;
-    const node = keyword(word.slice(n - len));
-    if (node) return place(root, c, node, c.off - len);
+  if (anySuffix) {
+    // Space/Tab: the longest keyword ending at the cursor, symbols included (sub=, u++).
+    const m = charRun(root, c);
+    for (let len = m; len >= 2; len--) {
+      const kw = keyword(text(row, c.off - len, c.off));
+      if (kw) return place(root, c, kw, c.off - len);
+    }
+    return null;
   }
-  return null;
+  const kw = n ? keyword(word) : null;
+  return kw ? place(root, c, kw, c.off - n) : null;
 }
 
 function autoReplace(root: Row, c: Cursor): Cursor {
@@ -156,11 +196,21 @@ export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
     rowAt(root, c.path).splice(c.off, 0, sym(ch));
     return at(c.path, c.off + 1);
   }
-  if (!/[a-zA-Z]/.test(ch)) c = completeWord(root, c, false) ?? c;
+  if (!/[a-zA-Z]/.test(ch)) {
+    // A pending word converts before punctuation, unless the punctuation continues it (sub=, not=).
+    const r = rowAt(root, c.path);
+    const n = letterRun(root, c);
+    if (!isKeywordPrefix(text(r, c.off - n, c.off) + ch)) c = completeWord(root, c, false) ?? c;
+  }
   const row = rowAt(root, c.path);
 
-  // Closing a bracket we're inside of jumps out of it.
   const owner = ownerOf(root, c.path);
+  // || : a second bar right inside an empty |·| makes it a norm.
+  if (ch === '|' && owner?.name === 'delim' && owner.open === '|' && owner.close === '|' && !row.length) {
+    owner.open = owner.close = '\\|';
+    return c;
+  }
+  // Closing a bracket we're inside of jumps out of it.
   if (owner?.name === 'delim' && CLOSERS[ch] && owner.close === CLOSERS[ch]) {
     const parent = c.path.slice(0, -1);
     return at(parent, c.path[c.path.length - 1][0] + 1);
@@ -189,8 +239,23 @@ export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
     return place(root, c, cmd(name), c.off);
   }
   if (ch === '/') {
+    // Pull the preceding term into the numerator. Scripts come along with their base,
+    // but only if the base is itself a term: \lim_{x\to0} stays outside.
     let i = c.off;
-    while (i > 0 && isOperand(row[i - 1])) i--;
+    while (i > 0) {
+      const n = row[i - 1];
+      if (isScript(n)) {
+        let b = i - 1;
+        while (b > 0 && isScript(row[b - 1])) b--;
+        if (b > 0 && isOperand(row[b - 1])) {
+          i = b - 1;
+          continue;
+        }
+        break;
+      }
+      if (!isOperand(n)) break;
+      i--;
+    }
     const num = row.splice(i, c.off - i);
     const frac = cmd('frac', 2);
     frac.slots[0] = num;
@@ -205,11 +270,9 @@ export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
   if (/[a-zA-Z]/.test(ch)) {
     if (settings.instantKeywords) {
       const n = letterRun(root, c);
-      const word = row.slice(c.off - n, c.off).map((x) => (x as { tex: string }).tex).join('');
-      if (settledKeyword(word, ch)) {
-        c = completeWord(root, c, false) ?? c;
-        return typeChar(root, c, ch);
-      }
+      const len = settledSuffix(text(row, c.off - n, c.off), ch);
+      const kw = len ? keyword(text(row, c.off - len, c.off)) : null;
+      if (kw) return typeChar(root, place(root, c, kw, c.off - len), ch);
     }
     row.splice(c.off, 0, sym(ch));
     const next = at(c.path, c.off + 1);
@@ -217,7 +280,8 @@ export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
   }
   const tex = { '{': '\\{', '}': '\\}', '%': '\\%', '#': '\\#', '&': '\\&', '~': '\\sim', '\\': '\\' }[ch] ?? ch;
   row.splice(c.off, 0, sym(tex));
-  return autoReplace(root, at(c.path, c.off + 1));
+  const next = at(c.path, c.off + 1);
+  return (settings.instantKeywords && instantSymbols(root, next)) || autoReplace(root, next);
 }
 
 /** Space: complete a keyword, else jump out of the current slot when at its end. */

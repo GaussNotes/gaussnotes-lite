@@ -171,6 +171,22 @@ check('caret after x² is right of the exponent, at base height', String(g2.ok),
 await page.keyboard.type('+1');
 check('typing after x² continues the equation', await md(), 'a$x^{2}+1$');
 
+// lim + Tab (instant symbols off): converts and leaves the cursor in the subscript.
+await page.uncheck('#instant-toggle');
+await page.evaluate(() => window.gn.load('a'));
+await page.mouse.click(500, 600);
+await page.keyboard.type('$lim');
+await page.keyboard.press('Tab');
+await page.keyboard.type('x->0');
+check('lim + Tab puts cursor in the subscript', await md(), '$\\lim_{x\\to0}$');
+await page.keyboard.press('Escape');
+await page.check('#instant-toggle');
+await page.mouse.click(500, 600); // back into the document, at its end
+await page.keyboard.type(' $lim');
+await page.keyboard.type('n');
+check('lim converts instantly when instant symbols are on', await md(), '$\\lim_{n}$');
+await page.keyboard.press('Escape');
+
 await page.screenshot({ path: `${shots}/6-final.png`, fullPage: true });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();

@@ -102,6 +102,11 @@ function emitNode(node: MNode, path: Step[], i: number, ctx: Ctx, wrap: (s: stri
       return wrap(`\\left${node.open} ${slot(0)} \\right${node.close}`);
     case 'root':
       return wrap(`\\sqrt[${slot(0)}]{${slot(1)}}`);
+    case 'xrightarrow':
+    case 'xleftarrow':
+      return wrap(`\\${node.name}[${slot(0)}]{${slot(1)}}`);
+    case 'textcolor':
+      return wrap(`\\textcolor{${node.env}}{${slot(0)}}`);
     case 'text':
       return wrap(`\\text{${slot(0, true)}}`);
     case 'matrix': {
@@ -243,6 +248,20 @@ class Parser {
         this.expect(']');
         return [{ k: 'cmd', name: 'root', slots: [index, this.arg()] }];
       }
+    }
+    if (name === 'xrightarrow' || name === 'xleftarrow') {
+      this.ws();
+      let below: Row = [];
+      if (this.s[this.i] === '[') {
+        this.i++;
+        below = this.row((p) => p.s[p.i] === ']');
+        this.expect(']');
+      }
+      return [{ k: 'cmd', name, slots: [below, this.arg()] }];
+    }
+    if (name === 'textcolor') {
+      const env = this.rawGroup();
+      return [{ k: 'cmd', name, env, slots: [this.arg()] }];
     }
     if (TWO_ARG.has(name)) return [{ k: 'cmd', name, slots: [this.arg(), this.arg()] }];
     if (ONE_ARG.has(name)) {

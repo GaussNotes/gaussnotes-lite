@@ -72,7 +72,7 @@ export function atomClass(tex: string): AtomClass {
   if (BIN.has(tex)) return 'bin';
   if (REL.has(tex)) return 'rel';
   if (OP_LIMITS.has(tex)) return 'oplim';
-  if (OP.has(tex)) return 'op';
+  if (OP.has(tex) || tex.startsWith('\\operatorname')) return 'op';
   if (OPEN.has(tex)) return 'open';
   if (CLOSE.has(tex)) return 'close';
   if (PUNCT.has(tex)) return 'punct';

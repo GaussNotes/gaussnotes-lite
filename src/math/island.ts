@@ -348,7 +348,8 @@ export class MathIsland {
       else return false;
       return true;
     }
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Home', 'End', '$'].includes(e.key) || (e.key === 'Tab' && !this.ghost)) {
+    // Tab converts a pending word itself (and then stays put), so it isn't in this list.
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Home', 'End', '$'].includes(e.key)) {
       if (e.key !== 'Escape' || !this.ghost) this.finishWord();
     }
     const c = this.cursor;
