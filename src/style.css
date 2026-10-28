@@ -49,9 +49,14 @@ main { padding: 40px 16px 120px; }
   outline: none; caret-color: var(--accent);
 }
 .blk { white-space: pre-wrap; min-height: 1.65em; margin: 0 0 0.55em; }
-.blk.h1 { font-size: 1.9em; line-height: 1.25; margin: 0.4em 0 0.5em; font-weight: 600; }
-.blk.h2 { font-size: 1.45em; line-height: 1.3; margin: 0.8em 0 0.4em; font-weight: 600; }
-.blk.h3 { font-size: 1.2em; margin: 0.6em 0 0.3em; font-weight: 600; }
+.blk.h1, .blk.h2, .blk.h3, .blk.h4, .blk.h5, .blk.h6 { color: #111317; font-weight: 700; letter-spacing: -0.012em; }
+.blk.h1 { font-size: 2em; line-height: 1.2; margin: 0.3em 0 0.55em; }
+.blk.h2 { font-size: 1.5em; line-height: 1.28; margin: 0.9em 0 0.4em; }
+.blk.h3 { font-size: 1.22em; line-height: 1.35; margin: 0.7em 0 0.3em; }
+.blk.h4 { font-size: 1.08em; margin: 0.6em 0 0.25em; }
+.blk.h5 { font-size: 1em; margin: 0.5em 0 0.2em; }
+.blk.h6 { font-size: 0.92em; margin: 0.5em 0 0.2em; color: #3d4046; text-transform: uppercase; letter-spacing: 0.04em; }
+.blk[class*=' h'] .md-mark { font-weight: 400; }
 .blk.quote { border-left: 3px solid var(--line); padding-left: 14px; color: #555; }
 
 .math { position: relative; cursor: text; border-radius: 3px; user-select: none; -webkit-user-select: none; }
@@ -97,3 +102,27 @@ dialog { border: 1px solid var(--line); border-radius: 8px; font: 14px/1.5 -appl
 dialog h3 { margin: 0.6em 0 0.3em; }
 dialog td { padding: 3px 10px 3px 0; vertical-align: top; }
 kbd, code { font: 12px ui-monospace, Menlo, monospace; background: #f1f2f4; border-radius: 4px; padding: 1px 5px; }
+
+/* Inline markdown: markers are dimmed in the paragraph being edited, hidden elsewhere. */
+.md-mark { color: #b3b7be; }
+.blk:not(.editing) .md-mark { display: none; }
+.blk strong { font-weight: 650; }
+.md-link { color: var(--accent); }
+.md-linktext { text-decoration: underline; text-decoration-color: rgba(59, 108, 246, 0.35); text-underline-offset: 2px; }
+
+/* Pandoc footnotes: [^label] shows as its number; ^[inline] collapses to a number too. */
+.md-fnref, .md-fninline .md-fnbody { font-size: 0.72em; }
+.md-fnref { color: var(--accent); cursor: help; }
+.md-fnref.missing { color: #d9534f; }
+.blk:not(.editing) .md-fnref::after { content: attr(data-n); }
+.md-fninline { color: #555; }
+.blk.editing .md-fninline .md-fnbody { background: rgba(59, 108, 246, 0.06); border-radius: 3px; }
+.blk:not(.editing) .md-fninline .md-fnbody { display: none; }
+.blk:not(.editing) .md-fninline::after { content: attr(data-n); font-size: 0.72em; vertical-align: super; color: var(--accent); cursor: help; }
+.blk.fn-def { font-size: 0.86em; color: #4a4d52; line-height: 1.5; margin-bottom: 0.3em; }
+.blk.fn-def:not(.editing)::before { content: attr(data-n) '. '; color: var(--accent); }
+.blk.fn-def:not(.fn-def + .fn-def) { border-top: 1px solid var(--line); padding-top: 0.7em; margin-top: 1.2em; }
+
+/* Section numbers (Pandoc --number-sections style), display only: computed into data-secnum. */
+.doc.numbered .blk[data-secnum]:not(.editing)::before { content: attr(data-secnum) '\2002'; color: #6b7079; font-weight: 600; }
+.doc.numbered .blk[data-secnum].editing > .md-mark:first-child::after { content: attr(data-secnum) '\2002'; color: #6b7079; font-weight: 600; }

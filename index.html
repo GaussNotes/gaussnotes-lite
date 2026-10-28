@@ -13,6 +13,9 @@
       <button id="new" title="New document">New</button>
       <button id="open" title="Open markdown (⌘O)">Open</button>
       <button id="save" title="Save (⌘S)">Save</button>
+      <label class="toggle" title="Show section numbers (1, 1.1, 1.1.1…) on headings. Not saved into the file; end a heading with {-} to leave it unnumbered.">
+        <input id="number-toggle" type="checkbox" checked /> Number headings
+      </label>
       <label class="toggle" title="On: sum, alpha, sqrt… convert as soon as you type them. Off: they convert on space or Tab.">
         <input id="instant-toggle" type="checkbox" checked /> Instant symbols
       </label>
@@ -58,6 +61,13 @@
         <tr><td>selection + <kbd>(</kbd> / <kbd>/</kbd></td><td>wrap in brackets / make it the numerator; any other key replaces it</td></tr>
         <tr><td><kbd>⌘C</kbd> <kbd>⌘X</kbd> <kbd>⌘V</kbd></td><td>copy / cut / paste as LaTeX; pasting into text makes an equation</td></tr>
         <tr><td><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></td><td>undo / redo (text and math)</td></tr>
+      </table>
+      <h3>Text</h3>
+      <table>
+        <tr><td><code>**bold**</code> <code>*italic*</code> <code>~~strike~~</code> · <kbd>⌘B</kbd> <kbd>⌘I</kbd></td><td>formatting; markers show only on the line you're editing</td></tr>
+        <tr><td><code>[text](url)</code> · paste a URL over a selection</td><td>link; <kbd>⌘</kbd>-click to open</td></tr>
+        <tr><td><code>[^1]</code> + <code>[^1]: note</code> · <code>^[inline note]</code> · <kbd>⌘⌥F</kbd></td><td>Pandoc footnotes, numbered automatically</td></tr>
+        <tr><td><code>#</code> … <code>######</code> · <code>{-}</code> at the end</td><td>headings, numbered 1 / 1.1 / 1.1.1 (toggle in the toolbar); <code>{-}</code> leaves one unnumbered</td></tr>
       </table>
       <form method="dialog"><button>Close</button></form>
     </dialog>

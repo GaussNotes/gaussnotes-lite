@@ -248,6 +248,70 @@ await page.keyboard.press('End');
 await page.keyboard.press('Meta+v');
 check('\\( \\) pasted into text becomes inline math', await md(), 'startsee $e^{x}$ here');
 
+// ---- inline markdown: bold, italic, links, footnotes
+await page.evaluate(() => window.gn.load('first'));
+await page.locator('.blk').first().click();
+await page.keyboard.press('End');
+await page.keyboard.press('Enter');
+await page.keyboard.type('Some **bold** and *it* text with $x^2');
+await page.keyboard.press('Escape');
+await page.keyboard.type(' inside.');
+check('typing markdown keeps the text exact', await md(), 'Some **bold** and *it* text with $x^{2}$ inside.');
+check('bold renders as <strong>', await page.locator('.blk strong').innerText(), 'bold');
+check('markers dimmed while editing', await page.evaluate(() => getComputedStyle(document.querySelector('.blk.editing .md-mark')).display), 'inline');
+await page.locator('.blk').first().click();
+check('markers hidden in other paragraphs', await page.evaluate(() => getComputedStyle(document.querySelectorAll('.blk')[1].querySelector('.md-mark')).display), 'none');
+
+// ⌘B / ⌘I on a selection, and toggling back off.
+await page.evaluate(() => window.gn.load('make this word bold'));
+await page.locator('.blk').first().click();
+await page.keyboard.press('End');
+await page.keyboard.press('Alt+Shift+ArrowLeft');
+await page.keyboard.press('Meta+b');
+check('⌘B wraps the selection', await md(), 'make this word **bold**');
+await page.keyboard.press('Meta+b');
+check('⌘B again unwraps it', await md(), 'make this word bold');
+await page.keyboard.press('Meta+i');
+check('⌘I italicizes', await md(), 'make this word *bold*');
+
+// A URL pasted over a selection becomes a link; ⌘-click would open it.
+await page.evaluate(() => navigator.clipboard.writeText('https://example.org/x'));
+await page.evaluate(() => window.gn.load('read the docs'));
+await page.locator('.blk').first().click();
+await page.keyboard.press('End');
+for (let i = 0; i < 1; i++) await page.keyboard.press('Alt+Shift+ArrowLeft');
+await page.keyboard.press('Meta+v');
+check('URL pasted over text makes a link', await md(), 'read the [docs](https://example.org/x)');
+check('link rendered', await page.locator('.md-link').getAttribute('data-href'), 'https://example.org/x');
+
+// Footnotes: numbered by first appearance, definition text on hover, ⌘⌥F inserts the next one.
+await page.evaluate(() => window.gn.load('Claim one[^a] and two[^b], again[^a], inline^[quick note].\n\n[^b]: Second source.\n\n[^a]: First source.'));
+await page.locator('.blk').last().click(); // move the caret off the first paragraph
+const fn = await page.evaluate(() => [...document.querySelectorAll('.blk')[0].querySelectorAll('.md-fnref, .md-fninline')].map((e) => e.dataset.n + ':' + e.title).join(' | '));
+check('footnotes numbered in order, with note text', fn, '1:First source. | 2:Second source. | 1:First source. | 3:quick note');
+check('definitions numbered to match', await page.evaluate(() => [...document.querySelectorAll('.fn-def')].map((e) => e.dataset.n).join(',')), '2,1');
+await page.screenshot({ path: `${shots}/12-footnotes.png` });
+await page.evaluate(() => window.gn.load('Euler wrote this'));
+await page.locator('.blk').first().click();
+await page.keyboard.press('End');
+await page.keyboard.press('Meta+Alt+f');
+await page.keyboard.type('Introductio, 1748.');
+check('⌘⌥F adds a reference and its definition', await md(), 'Euler wrote this[^1]\n\n[^1]: Introductio, 1748.');
+
+// Files round-trip exactly.
+const sample = '# Notes on *series*\n\nThe sum $\\sum_{n}a_{n}$ is **absolutely** convergent[^1]; see [Rudin](https://example.org).\n\n> A ~~wrong~~ quote.\n\n[^1]: Rudin, ch. 3.\n';
+await page.evaluate((m) => window.gn.load(m), sample);
+check('markdown with formatting round-trips', await md(), sample);
+await page.screenshot({ path: `${shots}/13-formatting.png` });
+
+// Section numbers on headings (display only), {-} excluded.
+await page.evaluate(() => window.gn.load('# Title {-}\n\n# Intro\n\n## Setup\n\n### Detail\n\n## Results\n\n# Next\n\n## More\n\nbody'));
+await page.locator('.blk').last().click();
+const nums = await page.evaluate(() => [...document.querySelectorAll('.blk[class*=" h"]')].map((b) => b.dataset.secnum ?? '-').join(' '));
+check('headings numbered 1 / 1.1 / 1.1.1, {-} skipped', nums, '- 1 1.1 1.1.1 1.2 2 2.1');
+check('numbers are not saved into the file', await md(), '# Title {-}\n\n# Intro');
+await page.screenshot({ path: `${shots}/18-numbered.png` });
+
 await page.screenshot({ path: `${shots}/6-final.png`, fullPage: true });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();

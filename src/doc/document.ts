@@ -3,6 +3,7 @@ import { type Dir, type IslandHost, MathIsland } from '../math/island';
 import { parseTex, toTex } from '../math/latex';
 import { type Cursor, pathKey, rowAt, sym } from '../math/model';
 import { type ChangeKind, History, type Pos } from './history';
+import { ISLAND, parseBlock, renderToks } from './inline';
 import { type Block, type Part, parseMarkdown, serializeInline, serializeMarkdown } from './markdown';
 
 const ZW = '​';
@@ -37,7 +38,9 @@ export class DocEditor implements IslandHost {
     root.addEventListener('mousedown', (e) => this.onMouseDown(e));
     root.addEventListener('keydown', (e) => this.onKeyDown(e));
     root.addEventListener('beforeinput', (e) => this.onBeforeInput(e));
-    root.addEventListener('input', () => this.onInput());
+    // Don't rebuild a paragraph mid-composition (IME, dead keys): it would cancel the composition.
+    root.addEventListener('input', (e) => !(e as InputEvent).isComposing && this.onInput());
+    root.addEventListener('compositionend', () => this.onInput());
     root.addEventListener('paste', (e) => this.onPaste(e));
     root.addEventListener('copy', (e) => this.onCopy(e, false));
     root.addEventListener('cut', (e) => this.onCopy(e, true));
@@ -72,6 +75,21 @@ export class DocEditor implements IslandHost {
       if (!this.busy && this.active && document.activeElement !== input) this.deactivate();
     });
     window.addEventListener('resize', () => this.active?.render());
+    // The paragraph holding the caret shows its markdown markers; the others show just the result.
+    document.addEventListener('selectionchange', () => this.markEditing());
+    // selectionchange can lag or be skipped (e.g. unfocused windows); these keep the marker state honest.
+    for (const ev of ['keyup', 'mouseup', 'focus', 'input'] as const) root.addEventListener(ev, () => this.markEditing());
+  }
+
+  private editing: HTMLElement | null = null;
+  private markEditing() {
+    const sel = getSelection();
+    const node = sel?.rangeCount && this.root.contains(sel.focusNode) ? sel.focusNode : null;
+    const block = node ? this.blockOf(node) : null;
+    if (block === this.editing) return;
+    this.editing?.classList.remove('editing');
+    this.editing = block && !this.islands.has(block) ? block : null;
+    this.editing?.classList.add('editing');
   }
 
   // ---- load / save -------------------------------------------------------
@@ -80,6 +98,8 @@ export class DocEditor implements IslandHost {
     this.active = null;
     this.root.replaceChildren(...parseMarkdown(md).map((b) => this.buildBlock(b)));
     this.ensureBlock();
+    this.editing = null;
+    this.renumberFootnotes();
     if (resetHistory) this.history.reset(this.markdown(), { b: 0, off: 0 });
   }
 
@@ -163,8 +183,34 @@ export class DocEditor implements IslandHost {
   private units = (leaf: Leaf) => (leaf instanceof Text ? strip(leaf.data).length : leaf.tagName === 'BR' ? 0 : 1);
 
   /** Keep a text node on both sides of every inline equation so the caret can sit there. */
-  private normalizeBlock(block: HTMLElement) {
+  /** The paragraph's text with ISLAND where each equation sits, plus those equation elements. */
+  private blockSource(block: HTMLElement): { src: string; islands: HTMLElement[] } {
+    let src = '';
+    const islands: HTMLElement[] = [];
+    for (const leaf of this.leaves(block)) {
+      if (leaf instanceof Text) src += strip(leaf.data);
+      else if (leaf.tagName !== 'BR') {
+        src += ISLAND;
+        islands.push(leaf);
+      }
+    }
+    return { src, islands };
+  }
+
+  /**
+   * Rebuild a paragraph's DOM from its text: inline markdown decorations, heading/quote/footnote
+   * classes, and a text node on both sides of every equation so the caret can sit there.
+   * The caret is kept by its text offset.
+   */
+  private normalizeBlock(block: HTMLElement, src = this.blockSource(block)) {
     if (this.islands.has(block)) return;
+    const sel = getSelection();
+    const keep = !this.active && !!sel?.rangeCount && block.contains(sel.anchorNode) && block.contains(sel.focusNode);
+    const a = keep ? this.unitsBefore(block, sel!.anchorNode!, sel!.anchorOffset) : 0;
+    const f = keep ? this.unitsBefore(block, sel!.focusNode!, sel!.focusOffset) : 0;
+
+    const info = parseBlock(src.src);
+    block.replaceChildren(renderToks(info.toks, [...src.islands]));
     for (const m of [...block.querySelectorAll<HTMLElement>('.math')]) {
       if (!this.isMath(m)) continue;
       const prev = m.previousSibling;
@@ -172,11 +218,57 @@ export class DocEditor implements IslandHost {
       const next = m.nextSibling;
       if (!(next instanceof Text) || !next.data) m.after(ZW);
     }
-    const hasContent = this.leaves(block).some((l) => !(l instanceof Text) || l.data);
-    if (!hasContent) block.replaceChildren(document.createElement('br'));
-    const text = this.plainText(block);
-    const h = /^(#{1,3}) /.exec(text);
-    block.className = 'blk' + (h ? ` h${h[1].length}` : /^> /.test(text) ? ' quote' : '');
+    if (!src.src) block.replaceChildren(document.createElement('br'));
+    const editing = block.classList.contains('editing');
+    block.className =
+      'blk' + (info.heading ? ` h${info.heading}` : '') + (info.unnumbered ? ' unnumbered' : '') + (info.quote ? ' quote' : '') + (info.fnDef ? ' fn-def' : '') + (editing ? ' editing' : '');
+    if (info.fnDef) block.dataset.label = info.fnDef;
+    else delete block.dataset.label;
+    if (keep) this.setRange(block, a, f);
+  }
+
+  /** Section numbers like Pandoc's --number-sections: each level counts within the one above; {-} headings are skipped. */
+  private numberHeadings() {
+    const count = [0, 0, 0, 0, 0, 0];
+    for (const b of this.root.querySelectorAll<HTMLElement>('.blk')) {
+      const level = +(/\bh([1-6])\b/.exec(b.className)?.[1] ?? 0);
+      if (!level || b.classList.contains('unnumbered')) {
+        delete b.dataset.secnum;
+        continue;
+      }
+      count[level - 1]++;
+      count.fill(0, level);
+      // Pandoc keeps leading zeros for skipped levels (### right after # is 1.0.1).
+      b.dataset.secnum = count.slice(0, level).join('.');
+    }
+  }
+
+  /** Number footnotes in order of first appearance, like Pandoc, and put each note's text on hover. */
+  private renumberFootnotes() {
+    this.numberHeadings();
+    const num = new Map<string, number>();
+    let n = 0;
+    for (const el of this.root.querySelectorAll<HTMLElement>('.blk:not(.fn-def) .md-fnref, .blk:not(.fn-def) .md-fninline')) {
+      if (el.classList.contains('md-fninline')) {
+        el.dataset.n = String(++n);
+        el.title = (el.querySelector('.md-fnbody')?.textContent ?? '').trim();
+      } else {
+        const label = el.dataset.label!;
+        if (!num.has(label)) num.set(label, ++n);
+        el.dataset.n = String(num.get(label));
+      }
+    }
+    const text = new Map<string, string>();
+    for (const def of this.root.querySelectorAll<HTMLElement>('.blk.fn-def')) {
+      const label = def.dataset.label!;
+      if (!num.has(label)) num.set(label, ++n);
+      def.dataset.n = String(num.get(label));
+      text.set(label, this.plainText(def).replace(/^\[\^[^\]]+\]:\s?/, ''));
+    }
+    for (const el of this.root.querySelectorAll<HTMLElement>('.md-fnref')) {
+      el.title = text.get(el.dataset.label!) ?? `No definition for [^${el.dataset.label}]`;
+      el.classList.toggle('missing', !text.has(el.dataset.label!));
+    }
   }
 
   private ensureBlock() {
@@ -283,27 +375,42 @@ export class DocEditor implements IslandHost {
     this.deactivate();
     if (this.islands.has(block)) return this.caretAround(block, 'after');
     this.root.focus({ preventScroll: true });
+    const [node, idx] = this.domAt(block, pos.off);
+    this.setCaret(node, idx);
+  }
+
+  /** DOM position for a text offset (in units) in a paragraph. */
+  private domAt(block: HTMLElement, off: number): [Node, number] {
     let n = 0;
     for (const leaf of this.leaves(block)) {
       if (leaf instanceof Text) {
         const len = strip(leaf.data).length;
-        if (n + len >= pos.off) {
-          let k = pos.off - n;
+        if (n + len >= off) {
+          let k = off - n;
           let idx = 0;
           while (k > 0 || leaf.data[idx] === ZW) {
             if (idx >= leaf.data.length) break;
             if (leaf.data[idx] !== ZW) k--;
             idx++;
           }
-          return this.setCaret(leaf, idx);
+          return [leaf, idx];
         }
         n += len;
       } else n += this.units(leaf);
     }
     const leaves = this.leaves(block);
     const last = leaves[leaves.length - 1];
-    if (last instanceof Text) this.setCaret(last, last.data.length);
-    else this.setCaret(block, last?.tagName === 'BR' ? block.childNodes.length - 1 : block.childNodes.length);
+    if (last instanceof Text) return [last, last.data.length];
+    return [block, last?.tagName === 'BR' ? block.childNodes.length - 1 : block.childNodes.length];
+  }
+
+  /** Select text offsets [anchor, focus] in a paragraph. */
+  private setRange(block: HTMLElement, anchor: number, focus: number) {
+    const sel = getSelection()!;
+    const [an, ao] = this.domAt(block, anchor);
+    const [fn, fo] = this.domAt(block, focus);
+    sel.setBaseAndExtent(an, ao, fn, fo);
+    this.markEditing();
   }
 
   private setCaret(node: Node, offset: number) {
@@ -313,6 +420,7 @@ export class DocEditor implements IslandHost {
     r.collapse(true);
     sel.removeAllRanges();
     sel.addRange(r);
+    this.markEditing();
     (node instanceof Element ? node : node.parentElement)?.scrollIntoView?.({ block: 'nearest' });
   }
 
@@ -476,6 +584,7 @@ export class DocEditor implements IslandHost {
   // ---- history -----------------------------------------------------------
 
   private record(kind: ChangeKind) {
+    this.renumberFootnotes();
     this.history.record(this.markdown(), this.getPos(), kind);
     this.opts.onChange();
   }
@@ -499,6 +608,12 @@ export class DocEditor implements IslandHost {
   // ---- text-mode events --------------------------------------------------
 
   private onMouseDown(e: MouseEvent) {
+    const link = (e.target as Element).closest?.<HTMLElement>('.md-link');
+    if (link?.dataset.href && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      window.open(link.dataset.href, '_blank', 'noopener');
+      return;
+    }
     const el = (e.target as Element).closest?.('.math');
     const isl = el && this.islands.get(el);
     if (isl) {
@@ -545,6 +660,14 @@ export class DocEditor implements IslandHost {
     if (mod && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       return void this.commandK();
+    }
+    if (mod && !e.altKey && (e.key.toLowerCase() === 'b' || e.key.toLowerCase() === 'i')) {
+      e.preventDefault();
+      return this.toggleWrap(e.key.toLowerCase() === 'b' ? '**' : '*');
+    }
+    if (mod && e.altKey && e.code === 'KeyF') {
+      e.preventDefault();
+      return this.insertFootnote();
     }
     if (mod || e.altKey) return;
     const p = this.collapsedPos();
@@ -655,6 +778,57 @@ export class DocEditor implements IslandHost {
     return isl;
   }
 
+  /** The text selection as offsets in one paragraph (null if it spans paragraphs or equations are active). */
+  private selectedRange(): { block: HTMLElement; start: number; end: number } | null {
+    const sel = getSelection();
+    if (this.active || !sel?.rangeCount) return null;
+    const r = sel.getRangeAt(0);
+    const block = this.blockOf(r.startContainer);
+    if (!block || block !== this.blockOf(r.endContainer) || this.islands.has(block) || !this.root.contains(block)) return null;
+    return { block, start: this.unitsBefore(block, r.startContainer, r.startOffset), end: this.unitsBefore(block, r.endContainer, r.endOffset) };
+  }
+
+  /** Edit a paragraph's text (equations stay where their ISLAND chars are) and select `sel` after. */
+  private editSource(block: HTMLElement, fn: (src: string) => { src: string; sel: [number, number] }) {
+    const cur = this.blockSource(block);
+    const { src, sel } = fn(cur.src);
+    this.normalizeBlock(block, { src, islands: cur.islands });
+    this.root.focus({ preventScroll: true });
+    this.setRange(block, sel[0], sel[1]);
+    this.record('struct');
+  }
+
+  /** ⌘B / ⌘I: wrap the selection in ** or *, or unwrap it if it already is. */
+  private toggleWrap(m: string) {
+    const r = this.selectedRange();
+    if (!r) return;
+    const { start: a, end: b } = r;
+    const L = m.length;
+    this.editSource(r.block, (src) => {
+      const before = src.slice(a - L, a) === m && (m !== '*' || src[a - L - 1] !== '*' || src.slice(a - 3, a) === '***');
+      const after = src.slice(b, b + L) === m && (m !== '*' || src[b + L] !== '*' || src.slice(b, b + 3) === '***');
+      if (a !== b && before && after) return { src: src.slice(0, a - L) + src.slice(a, b) + src.slice(b + L), sel: [a - L, b - L] };
+      return { src: src.slice(0, a) + m + src.slice(a, b) + m + src.slice(b), sel: [a + L, b + L] };
+    });
+  }
+
+  /** ⌘⌥F: insert the next footnote reference here and its definition at the end of the document. */
+  private insertFootnote() {
+    const r = this.selectedRange();
+    if (!r) return;
+    const used = [...this.markdown().matchAll(/\[\^(\d+)\]/g)].map((m) => +m[1]);
+    const label = String(Math.max(0, ...used) + 1);
+    const ref = `[^${label}]`;
+    const cur = this.blockSource(r.block);
+    this.normalizeBlock(r.block, { src: cur.src.slice(0, r.end) + ref + cur.src.slice(r.end), islands: cur.islands });
+    const def = this.newBlock();
+    this.root.append(def);
+    this.normalizeBlock(def, { src: `${ref}: `, islands: [] });
+    this.root.focus({ preventScroll: true });
+    this.setPos({ b: this.root.children.length - 1, off: Infinity });
+    this.record('struct');
+  }
+
   private onBeforeInput(e: InputEvent) {
     switch (e.inputType) {
       case 'historyUndo':
@@ -694,6 +868,15 @@ export class DocEditor implements IslandHost {
     if (tex) return void this.insertIsland(tex, false);
     let text = e.clipboardData?.getData('text/plain');
     if (!text) return;
+    // A URL pasted over selected text makes a link.
+    const url = text.trim();
+    const range = this.selectedRange();
+    if (/^(https?:\/\/|mailto:)\S+$/.test(url) && range && range.start !== range.end) {
+      return this.editSource(range.block, (src) => {
+        const label = src.slice(range.start, range.end);
+        return { src: src.slice(0, range.start) + `[${label}](${url})` + src.slice(range.end), sel: [range.start + 1, range.start + 1 + label.length] };
+      });
+    }
     // LaTeX-style delimiters from elsewhere: \[…\] is display math, \(…\) inline.
     text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `\n\n$$${m}$$\n\n`).replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m.trim()}$`);
     const sel = getSelection()!;

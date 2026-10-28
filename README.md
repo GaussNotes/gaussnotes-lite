@@ -10,6 +10,12 @@ npm run dev                            # http://localhost:5173
 
 ## Writing
 
+- Text formatting renders live while the file stays plain markdown:
+  - `**bold**` / `__bold__`, `*italic*` / `_italic_`, `***both***`, `~~strike~~`, `[text](url)`, headings `#` to `######`, and `> quotes`.
+  - The markers show (dimmed) only in the paragraph holding the caret; elsewhere you see just the result.
+  - ⌘B / ⌘I toggle bold / italic. Pasting a URL over selected text makes a link, and ⌘-click opens one.
+- Footnotes use Pandoc syntax: `[^label]` references with `[^label]: …` definition paragraphs, and inline `^[…]` notes. They're numbered by first appearance and show their text on hover. ⌘⌥F inserts the next reference and its definition at the end of the document.
+- Headings get section numbers (1, 1.1, 1.1.1, …) like Pandoc's `--number-sections`. The numbers are display only, never written to the file, and *Number headings* in the toolbar turns them off. End a heading with `{-}` (or `{.unnumbered}`) to leave it unnumbered, e.g. a title.
 - The document is plain markdown. **Open** and **Save** use the File System Access API in Chromium browsers and fall back to upload/download elsewhere. A draft autosaves to localStorage.
 - Typing `$` starts inline math. Typing `$` again in an empty equation on an empty line turns it into display math (`$$…$$`).
 - Inside an equation:
@@ -47,6 +53,7 @@ LaTeX that comes from the model, the clipboard, or a file is normalized on the w
 | `src/doc/document.ts` | `contenteditable` document. Equations are `contenteditable=false` islands. While one is active, keystrokes go to a hidden textarea (this handles IME and dead keys, e.g. `^` on AZERTY). Caret positions are measured in units where each inline equation counts as one character. |
 | `src/doc/history.ts` | Snapshot undo: markdown plus caret, with rapid edits merged into one step. |
 | `src/doc/markdown.ts` | Markdown ↔ blocks. |
+| `src/doc/inline.ts` | Inline markdown (emphasis, links, footnotes, heading prefixes) → decorated DOM for a paragraph. The paragraph is rebuilt from its text after each edit, and the caret is restored by text offset. |
 
 ## Tests
 
@@ -60,5 +67,5 @@ node test/e2e.mjs http://localhost:5173 /tmp   # drives the real editor (AI call
 
 ## Limits
 
-- Text is stored and shown verbatim. Headings and quotes get styling, but there is no bold or italic rendering.
+- Lists, tables, code blocks and images are kept as plain text (no special rendering).
 - `$` inside code spans in a markdown file will be read as math.

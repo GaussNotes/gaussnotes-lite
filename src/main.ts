@@ -157,6 +157,14 @@ onAiStatus((s, msg) => {
   }
 });
 
+const numbering = $<HTMLInputElement>('number-toggle');
+numbering.checked = localStorage.getItem('gn-numbered') !== '0';
+$('doc').classList.toggle('numbered', numbering.checked);
+numbering.onchange = () => {
+  $('doc').classList.toggle('numbered', numbering.checked);
+  localStorage.setItem('gn-numbered', numbering.checked ? '1' : '0');
+};
+
 const instant = $<HTMLInputElement>('instant-toggle');
 instant.checked = localStorage.getItem('gn-instant') !== '0';
 settings.instantKeywords = instant.checked;
