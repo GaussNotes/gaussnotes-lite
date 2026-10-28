@@ -1,7 +1,7 @@
 import katex from 'katex';
 import { backspace, completeWord, del, endOf, insertRow, moveLeft, moveRight, space, typeChar, verticalTarget } from './editing';
 import { parseTex, type RenderMap, toInstrumentedTex, toTex } from './latex';
-import { type Cursor, isTextRow, pathKey, type Row, rowAt, type Step } from './model';
+import { type Cursor, isScript, isTextRow, pathKey, type Row, rowAt, type Step } from './model';
 
 export type Dir = 'left' | 'right' | 'up' | 'down';
 
@@ -140,16 +140,46 @@ export class MathIsland {
   }
 
   /** Caret x for every offset in a row. */
+  /**
+   * A base and its trailing scripts (e.g. \sum with limits) are drawn as one
+   * unit, so gaps around them are measured against the whole group.
+   */
+  private groups(row: Row): { start: number; end: number }[] {
+    const g: { start: number; end: number }[] = [];
+    row.forEach((n, i) => {
+      if (isScript(n) && i > 0) {
+        const prev = g[i - 1];
+        g.push(prev);
+        prev.end = i;
+      } else g.push({ start: i, end: i });
+    });
+    return g;
+  }
+
+  /** Caret x for every offset in a row. */
   private stops(info: RowInfo): number[] {
     if (info.empty !== undefined) {
       const b = this.box(info.empty, 'e');
       return [b ? b.left : 0];
     }
+    const row = rowAt(this.root, info.path);
     const boxes = info.ids.map((id) => this.box(id));
+    const groups = this.groups(row);
+    const groupBox = (i: number) => {
+      let b: Box | null = null;
+      for (let j = groups[i].start; j <= groups[i].end; j++) if (boxes[j]) b = union(b, boxes[j]!);
+      return b;
+    };
     const xs: number[] = [];
     for (let i = 0; i <= boxes.length; i++) {
-      const l = boxes[i - 1];
-      const r = boxes[i];
+      if (i > 0 && i < boxes.length && groups[i - 1] === groups[i]) {
+        // Between a base and its scripts: where the scripts attach.
+        const base = boxes[groups[i].start];
+        xs.push(base ? base.right : 0);
+        continue;
+      }
+      const l = i > 0 ? groupBox(i - 1) : null;
+      const r = i < boxes.length ? groupBox(i) : null;
       xs.push(l && r ? (l.right + r.left) / 2 : l ? l.right : r ? r.left : 0);
     }
     return xs;
@@ -169,7 +199,9 @@ export class MathIsland {
     }
     const x = this.stops(info)[c.off];
     const row = rowAt(this.root, c.path);
-    const pick = [c.off - 1, c.off].filter((i) => i >= 0 && i < row.length);
+    const groups = this.groups(row);
+    // Size the caret from a neighbouring base symbol, not a raised script.
+    const pick = [c.off - 1, c.off].filter((i) => i >= 0 && i < row.length).map((i) => groups[i].start);
     const best = pick.find((i) => row[i].k === 'sym') ?? pick[0];
     const b = best === undefined ? null : this.box(info.ids[best]);
     return b && { left: x, right: x, top: b.top, bottom: b.bottom };

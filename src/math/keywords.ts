@@ -4,7 +4,7 @@ import { cmd, type MNode, sym } from './model';
 // Word keywords convert on space (or when a non-letter is typed after them);
 // symbol sequences in AUTO convert as soon as they are typed.
 
-type Make = () => MNode;
+type Make = () => MNode | MNode[];
 const K = new Map<string, Make>();
 const def = (names: string, make: Make) => names.split(' ').forEach((n) => K.set(n, make));
 const s = (tex: string) => () => sym(tex);
@@ -55,7 +55,31 @@ def('floor', delim('\\lfloor', '\\rfloor'));
 
 const MATRIX = /^(p|b|v|B|V)?(mat|sys)(\d)(?:x(\d))?$/;
 
-export function keyword(name: string): MNode | null {
+// Operators that take limits come with empty sub/superscript slots to fill.
+const BOTH = 'sum prod coprod int iint iiint oint bigcup bigcap bigoplus bigotimes';
+const SUB_ONLY = 'lim limsup liminf max min';
+BOTH.split(' ').forEach((n) => K.set(n, () => [sym('\\' + n), cmd('sub'), cmd('sup')]));
+SUB_ONLY.split(' ').forEach((n) => K.set(n, () => [sym('\\' + n), cmd('sub')]));
+
+// Words that read as ordinary variable products too often to convert on their own.
+const NO_AUTO = new Set(['xx', 'and', 'orr', 'to', 'in', 'inn', 'ni', 'mid', 'Re', 'Im', 'top', 'bot', 'ell', 'arg', 'deg', 'dim', 'ker', 'hom']);
+
+/** Keyword for `name` if it should convert as soon as it's typed: no longer keyword starts with it. */
+export function autoKeyword(name: string): MNode | MNode[] | null {
+  if (name.length < 2 || NO_AUTO.has(name)) return null;
+  if (/^[pbvBV]?(m|ma|mat|s|sy|sys)$/.test(name)) return null; // could still become pmat2x2 / sys2
+  for (const k of K.keys()) if (k !== name && k.startsWith(name)) return null;
+  return keyword(name);
+}
+
+/** A keyword that was waiting (sin, lim…) and can no longer grow once `next` is typed after it. */
+export function settledKeyword(word: string, next: string): boolean {
+  if (word.length < 2 || NO_AUTO.has(word) || !K.has(word) || /^[pbvBV]?(m|ma|mat|s|sy|sys)$/.test(word)) return false;
+  for (const k of K.keys()) if (k.startsWith(word + next)) return false;
+  return true;
+}
+
+export function keyword(name: string): MNode | MNode[] | null {
   const make = K.get(name);
   if (make) return make();
   const m = MATRIX.exec(name);

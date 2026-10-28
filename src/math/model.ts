@@ -52,6 +52,8 @@ export const pathKey = (path: Step[]) => path.map(([n, s]) => `${n}.${s}`).join(
 
 export const sameCursor = (a: Cursor, b: Cursor) => a.off === b.off && pathKey(a.path) === pathKey(b.path);
 
+export const isScript = (n: MNode | undefined) => n?.k === 'cmd' && (n.name === 'sup' || n.name === 'sub');
+
 export const isEmptyCmd = (n: MNode) => n.k === 'cmd' && n.slots.every((s) => s.length === 0);
 
 // Atom classes, so instrumented rendering keeps TeX spacing.

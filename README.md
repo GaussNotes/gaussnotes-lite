@@ -1,10 +1,10 @@
 # GaussNotes Lite
 
-A small rewrite of the [GaussNotes](https://github.com/GaussNotes/gaussnotes) equation editor in TypeScript: one markdown document, inline and display equations you edit structurally, and an AI co-pilot for equations. There's no Flutter and no framework. The dependencies are KaTeX, Vite, and the Anthropic SDK.
+A small rewrite of the [GaussNotes](https://github.com/GaussNotes/gaussnotes) equation editor in TypeScript: one markdown document, inline and display equations you edit structurally, and an AI co-pilot for equations. There's no Flutter and no framework. The only runtime dependency is KaTeX, plus Vite for the dev server.
 
 ```bash
 npm install
-export ANTHROPIC_API_KEY=sk-ant-...   # only needed for the AI features
+export DEEPSEEK_API_KEY=sk-...        # only needed for the AI features
 npm run dev                            # http://localhost:5173
 ```
 
@@ -15,9 +15,10 @@ npm run dev                            # http://localhost:5173
 - Inside an equation:
   - `^` and `_` make scripts. `/` makes a fraction and pulls the preceding term into the numerator.
   - `(`, `[`, `{` and `|` make brackets. Typing the closing character steps out.
-  - Keywords convert on space, or when you type the next symbol: `alpha`, `sum`, `int`, `sqrt`, `RR`, `pmat2x3`, `sys2`, `text`, … `\anything` + space works for any command.
+  - Keywords: `alpha`, `sum`, `int`, `sqrt`, `RR`, `pmat2x3`, `sys2`, `text`, … With **Instant symbols** on (the default), a keyword converts the moment you finish typing it. Words that could still grow wait for the next character: `sin` waits in case you're typing `sinh`, and `sinx` gives `\sin x`. With it off, keywords convert on space or Tab. `\anything` + space works for any command.
+  - `sum`, `prod`, `int`, `oint`, `bigcup`… come with empty lower and upper limit slots, and `lim`, `max`, `min` with a lower one. Slots left empty aren't saved.
   - Shortcuts convert as you type: `<=` `>=` `!=` `->` `=>` `+-` `...`
-  - Arrow keys walk the structure, and ↑/↓ move between numerator and denominator, sub and sup, or matrix rows. Space at the end of a slot steps out of it.
+  - Arrow keys walk the structure. → at the end of any slot (exponent, subscript, numerator, root, brackets, matrix cell, limits) lands just after the whole object, still in the equation; another → leaves it. ← works the same way. ↑/↓ move between numerator and denominator, sub and sup, or matrix rows. Space at the end of a slot steps out of it. `^` at the end of a subscript (or `_` at the end of a superscript) adds the other script beside it rather than nesting it.
   - Clicking anywhere in a rendered equation puts the cursor at that spot.
 - ⌘Z / ⇧⌘Z undo and redo across both text and math.
 
@@ -26,7 +27,7 @@ npm run dev                            # http://localhost:5173
 - **Ghost completion:** when you pause while typing an equation, the model is asked what to insert at the cursor. The answer shows in gray. **Tab** accepts it, typing a matching character keeps the rest of it, and anything else dismisses it. Turn it off with the *Autocomplete* toggle.
 - **⌘K:** describe an equation in words. In text, this inserts a new equation (display math if the line is empty). Inside an equation, it rewrites that equation according to your instruction.
 
-The API key stays on the server. `server/ai.ts` is a Vite plugin that serves `POST /api/complete` and `POST /api/generate` during `npm run dev` and `npm run preview`. Both use `claude-opus-5-5` (completion at `low` effort, generation at `medium`) with server-side refusal fallback. To trade quality for lower ghost-text latency, override the models with `GAUSS_COMPLETE_MODEL` and `GAUSS_GENERATE_MODEL`.
+The API key stays on the server. `server/ai.ts` is a Vite plugin that serves `POST /api/complete` and `POST /api/generate` during `npm run dev` and `npm run preview`. Both call DeepSeek-V4.1-Flash (`deepseek-flash`) through DeepSeek's OpenAI-compatible chat endpoint: completion at `low` reasoning effort, generation at `high`. A suggestion takes about 2 seconds. Override with `GAUSS_COMPLETE_MODEL`, `GAUSS_GENERATE_MODEL`, and `GAUSS_AI_BASE_URL` (any OpenAI-compatible endpoint).
 
 ## How it works
 

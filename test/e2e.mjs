@@ -135,6 +135,42 @@ await page.keyboard.press('Enter');
 await page.keyboard.type('after');
 check('$$ display + enter exits below', await md(), 'para\n\n$$\nx\n$$\n\nafter');
 
+// Sum with prefilled limits: → from the top limit lands right of the ∑, inside the equation.
+await page.evaluate(() => window.gn.load(''));
+await page.mouse.click(500, 600); // empty area below the only paragraph
+await page.keyboard.type('$$sumi=1');
+await page.screenshot({ path: `${shots}/7-sum-sub.png` });
+await page.keyboard.press('ArrowRight');
+await page.keyboard.type('n');
+await page.keyboard.press('ArrowRight');
+const geo = await page.evaluate(() => {
+  const caret = document.querySelector('.math.active .m-caret').getBoundingClientRect();
+  const sum = [...document.querySelectorAll('.math.active [data-n]')].find((e) => e.textContent === '∑').getBoundingClientRect();
+  return { caretX: caret.left, sumRight: sum.right, caretMid: (caret.top + caret.bottom) / 2, sumTop: sum.top, sumBottom: sum.bottom, active: !!document.querySelector('.math.active') };
+});
+await page.screenshot({ path: `${shots}/8-sum-after.png` });
+check('→ from limit stays in equation', String(geo.active), 'true');
+check('caret right of ∑, level with it', String(geo.caretX >= geo.sumRight - 1 && geo.caretMid > geo.sumTop && geo.caretMid < geo.sumBottom), 'true');
+await page.keyboard.type('a_k');
+await page.keyboard.press('ArrowRight');
+await page.keyboard.press('ArrowRight');
+check('second → exits; content typed after ∑', await md(), '$$\n\\sum_{i=1}^{n}a_{k}\n$$');
+
+// Same for a plain superscript: → out of x^2 puts the caret right of the whole x², level with x.
+await page.evaluate(() => window.gn.load('a'));
+await page.mouse.click(500, 600);
+await page.keyboard.type('$x^2');
+await page.keyboard.press('ArrowRight');
+const g2 = await page.evaluate(() => {
+  const caret = document.querySelector('.math.active .m-caret').getBoundingClientRect();
+  const two = [...document.querySelectorAll('.math.active [data-n]')].find((e) => e.textContent === '2').getBoundingClientRect();
+  const x = [...document.querySelectorAll('.math.active [data-n]')].find((e) => e.textContent === 'x').getBoundingClientRect();
+  return { ok: caret.left >= two.right - 1 && Math.abs((caret.top + caret.bottom) / 2 - (x.top + x.bottom) / 2) < 3 };
+});
+check('caret after x² is right of the exponent, at base height', String(g2.ok), 'true');
+await page.keyboard.type('+1');
+check('typing after x² continues the equation', await md(), 'a$x^{2}+1$');
+
 await page.screenshot({ path: `${shots}/6-final.png`, fullPage: true });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();

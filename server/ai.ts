@@ -1,11 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 
 // Keeps the API key on the server. Mounted into Vite's dev and preview servers.
 
-const COMPLETE_MODEL = process.env.GAUSS_COMPLETE_MODEL ?? 'claude-opus-5-5';
-const GENERATE_MODEL = process.env.GAUSS_GENERATE_MODEL ?? 'claude-opus-5-5';
+const BASE_URL = process.env.GAUSS_AI_BASE_URL ?? 'https://api.deepseek.com';
+const COMPLETE_MODEL = process.env.GAUSS_COMPLETE_MODEL ?? 'deepseek-flash'; // DeepSeek-V4.1-Flash
+const GENERATE_MODEL = process.env.GAUSS_GENERATE_MODEL ?? 'deepseek-flash';
 const MAX_DOC = 24_000;
 
 const COMPLETE_SYSTEM = `You are the inline autocomplete engine of GaussNotes, a math notes editor. The user is typing a LaTeX equation and you predict what comes next, shown to them as gray ghost text they can accept with Tab.
@@ -16,24 +16,41 @@ const GENERATE_SYSTEM = `You write LaTeX math for GaussNotes, a math notes edito
 
 Output ONLY the LaTeX: no $ or \\[ delimiters, no code fences, no commentary. If a current equation is given, return the full edited equation. Match the notation of the surrounding notes. For several aligned lines in display math, use \\begin{aligned} ... \\end{aligned}.`;
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  client ??= new Anthropic();
-  return client;
+class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
-async function ask(model: string, system: string, user: string, effort: 'low' | 'medium', maxTokens: number): Promise<string> {
-  const msg = await getClient().beta.messages.create({
-    model,
-    max_tokens: maxTokens,
-    system,
-    output_config: { effort },
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    messages: [{ role: 'user', content: user }],
+// DeepSeek's OpenAI-compatible chat endpoint.
+async function ask(model: string, system: string, user: string, effort: 'low' | 'high', maxTokens: number): Promise<string> {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new ApiError(503, 'No DeepSeek key: set DEEPSEEK_API_KEY and restart the server.');
+  const res = await fetch(`${BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      reasoning_effort: effort,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
   });
-  if (msg.stop_reason === 'refusal') return '';
-  return msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
+  const data = (await res.json().catch(() => ({}))) as {
+    choices?: { message?: { content?: string } }[];
+    error?: { message?: string };
+  };
+  if (!res.ok) {
+    const msg = data.error?.message ?? `DeepSeek HTTP ${res.status}`;
+    throw new ApiError(res.status === 401 ? 503 : res.status === 429 ? 429 : 502, msg);
+  }
+  return (data.choices?.[0]?.message?.content ?? '').trim();
 }
 
 const clip = (doc: string) => {
@@ -57,11 +74,11 @@ async function handle(path: string, body: Body): Promise<string> {
   const doc = `<notes>\n${clip(body.doc ?? '')}\n</notes>\n\nThe equation being edited is the ${kind} equation marked ⟦EQ⟧.`;
   if (path === '/api/complete') {
     const user = `${doc}\n\n<before_cursor>${body.before ?? ''}</before_cursor>\n<after_cursor>${body.after ?? ''}</after_cursor>\n\nLaTeX to insert at the cursor:`;
-    return ask(COMPLETE_MODEL, COMPLETE_SYSTEM, user, 'low', 4000);
+    return ask(COMPLETE_MODEL, COMPLETE_SYSTEM, user, 'low', 2000);
   }
   const current = body.current ? `\n\n<current_equation>${body.current}</current_equation>` : '';
   const user = `${doc}${current}\n\n<instruction>${body.instruction ?? ''}</instruction>`;
-  return ask(GENERATE_MODEL, GENERATE_SYSTEM, user, 'medium', 16000);
+  return ask(GENERATE_MODEL, GENERATE_SYSTEM, user, 'high', 8000);
 }
 
 function readBody(req: IncomingMessage): Promise<Body> {
@@ -89,16 +106,13 @@ async function middleware(req: IncomingMessage, res: ServerResponse, next: () =>
   const path = req.url?.split('?')[0];
   if (req.method !== 'POST' || (path !== '/api/complete' && path !== '/api/generate')) return next();
   let aborted = false;
-  req.on('close', () => (aborted = !res.writableEnded));
+  // The response's close (not the request's, which fires once the body is read) means the client left.
+  res.on('close', () => (aborted = !res.writableEnded));
   try {
     const text = await handle(path, await readBody(req));
     if (!aborted) send(res, 200, { text });
   } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError || (!(e instanceof Anthropic.APIError) && /authentication method|api.?key|credentials/i.test((e as Error).message))) {
-      return send(res, 503, { error: 'No Anthropic credentials: set ANTHROPIC_API_KEY and restart the server.' });
-    }
-    if (e instanceof Anthropic.RateLimitError) return send(res, 429, { error: 'Rate limited, try again shortly.' });
-    if (e instanceof Anthropic.APIError) return send(res, 502, { error: e.message });
+    if (e instanceof ApiError) return send(res, e.status, { error: e.message });
     send(res, 500, { error: (e as Error).message });
   }
 }

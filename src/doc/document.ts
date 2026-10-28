@@ -238,7 +238,11 @@ export class DocEditor implements IslandHost {
     const sel = getSelection();
     if (!sel?.rangeCount || !this.root.contains(sel.focusNode)) return null;
     const node = sel.focusNode!;
-    if (node === this.root) return { b: Math.min(sel.focusOffset, this.root.children.length - 1), off: 0 };
+    if (node === this.root) {
+      // Caret between blocks (e.g. a click below the last paragraph): snap into the nearest one.
+      const n = this.root.children.length;
+      return sel.focusOffset >= n ? { b: n - 1, off: Infinity } : { b: sel.focusOffset, off: 0 };
+    }
     const block = this.blockOf(node)!;
     return { b: this.indexOfBlock(block), off: this.unitsBefore(block, node, sel.focusOffset) };
   }
@@ -603,8 +607,12 @@ export class DocEditor implements IslandHost {
     const sel = getSelection();
     if (!sel?.rangeCount) return null;
     if (!sel.isCollapsed) sel.deleteFromDocument();
-    const pos = this.getPos();
+    let pos = this.getPos();
     if (!pos) return null;
+    if (sel.focusNode === this.root) {
+      this.setPos(pos);
+      pos = this.getPos()!;
+    }
     const block = this.root.children[pos.b] as HTMLElement;
     let isl: MathIsland;
     if (display) {

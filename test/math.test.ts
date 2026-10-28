@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseTex, toTex } from '../src/math/latex';
-import { backspace, moveLeft, moveRight, space, typeChar } from '../src/math/editing';
+import { backspace, moveLeft, moveRight, settings, space, typeChar } from '../src/math/editing';
 import type { Cursor, Row } from '../src/math/model';
 
 const type = (s: string, root: Row = [], c: Cursor = { path: [], off: 0 }) => {
@@ -39,7 +39,8 @@ describe('typing', () => {
     expect(type('a+b/2').tex).toBe('a+\\frac{b}{2}');
     expect(type('(a+b)/2').tex).toBe('\\frac{\\left( a+b \\right)}{2}');
   });
-  it('keywords', () => {
+  it('keywords on space (instant mode off)', () => {
+    settings.instantKeywords = false;
     expect(type('alpha^2').tex).toBe('\\alpha^{2}');
     expect(type('2pi r').tex).toBe('2\\pi r');
     expect(type('x<=y').tex).toBe('x\\leq y');
@@ -49,6 +50,52 @@ describe('typing', () => {
     expect(type('RR').tex).toBe('RR');
     expect(type('RR ').tex).toBe('\\mathbb{R}');
     expect(type('pmat2 ').tex).toBe('\\begin{pmatrix}  &  \\\\  &  \\end{pmatrix}');
+    settings.instantKeywords = true;
+  });
+  it('instant keywords', () => {
+    expect(type('alpha').tex).toBe('\\alpha');
+    expect(type('beta+theta+vartheta').tex).toBe('\\beta+\\theta+\\vartheta');
+    expect(type('sqrtx').tex).toBe('\\sqrt{x}');
+    expect(type('RR').tex).toBe('\\mathbb{R}');
+    // Words that could still grow wait for the next character.
+    expect(type('delta').tex).toBe('\\delta');
+    expect(type('sinh').tex).toBe('\\sinh');
+    expect(type('sin(x)').tex).toBe('\\sin\\left( x \\right)');
+    expect(type('xx').tex).toBe('xx');
+    expect(type('sinx').tex).toBe('\\sin x');
+    expect(type('limx->0').tex).toBe('\\lim_{x\\to0}');
+    expect(type('pmat2x2').tex).toBe('pmat2x2'); // matrices still finish with space
+    expect(type('a pm b').tex).toBe('a\\pm b');
+  });
+  it('big operators come with limit slots', () => {
+    const r = type('sum');
+    expect(r.c).toEqual({ path: [[1, 0]], off: 0 }); // in the subscript
+    expect(type('sumi=1 n').tex).toBe('\\sum_{i=1}^{n}');
+    expect(type('sum_i=1^n').tex).toBe('\\sum_{i=1}^{n}');
+    expect(type('int').tex).toBe('\\int'); // empty slots are not saved
+    // From the end of the superscript, → lands after the whole operator.
+    const s = type('sumi n');
+    expect(moveRight(s.root, s.c)).toEqual({ path: [], off: 3 });
+  });
+  it('→ from the end of any slot lands just after the object, a second → leaves', () => {
+    for (const keys of ['x^2', 'x_k', '1/2', 'sqrtx', '(a+b', 'hatx', 'pmat1 a', 'sumi n', 'limx->0']) {
+      const { root, c } = type(keys);
+      expect(c.path.length, keys).toBeGreaterThan(0);
+      let cur = c;
+      // walk right until back in the root row, never leaving the equation on the way
+      for (let i = 0; cur.path.length && i < 10; i++) cur = moveRight(root, cur)!;
+      expect(cur, keys).toEqual({ path: [], off: root.length });
+      expect(moveRight(root, cur), keys).toBeNull();
+    }
+  });
+  it('← out of an object lands just before it', () => {
+    for (const keys of ['1/2', 'sqrtx', '(a+b']) {
+      const { root, c } = type(keys);
+      let cur = c;
+      for (let i = 0; cur.path.length && i < 10; i++) cur = moveLeft(root, cur)!;
+      expect(cur, keys).toEqual({ path: [], off: 0 });
+      expect(moveLeft(root, cur), keys).toBeNull();
+    }
   });
   it('backspace dissolves structures', () => {
     const { root, c } = type('x/');

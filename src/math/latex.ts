@@ -62,6 +62,7 @@ function emitRow(row: Row, path: Step[], ctx: Ctx, textMode = false): string {
       return;
     }
     if (node.k === 'cmd' && (node.name === 'sup' || node.name === 'sub')) {
+      if (!map && !node.slots[0].length) return; // unfilled limit slots aren't saved
       if (!hasBase || scripts.has(node.name)) {
         out += '{}';
         scripts = new Set();

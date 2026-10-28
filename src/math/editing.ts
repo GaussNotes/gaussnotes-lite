@@ -1,5 +1,10 @@
-import { AUTO, keyword } from './keywords';
-import { type Cmd, type Cursor, clone, cmd, isEmptyCmd, isLetter, isOperand, isTextRow, type MNode, ownerOf, type Row, rowAt, type Step, sym } from './model';
+import { AUTO, autoKeyword, keyword, settledKeyword } from './keywords';
+import { type Cmd, type Cursor, clone, cmd, isEmptyCmd, isLetter, isOperand, isScript, isTextRow, type MNode, ownerOf, type Row, rowAt, type Step, sym } from './model';
+
+export const settings = {
+  /** Convert keywords (sum, alpha, sqrt…) the moment they're typed, instead of on space/Tab. */
+  instantKeywords: true,
+};
 
 // Pure operations on (root, cursor). They mutate `root` in place and return the
 // new cursor, or null when the cursor would leave the equation.
@@ -22,6 +27,9 @@ export function moveRight(root: Row, c: Cursor): Cursor | null {
   const parent = c.path.slice(0, -1);
   const owner = ownerOf(root, c.path)!;
   if (si + 1 < owner.slots.length) return at([...parent, [ni, si + 1]], 0);
+  // Leaving a subscript straight into the superscript beside it (\sum_{a}^{b}).
+  const next = rowAt(root, parent)[ni + 1];
+  if (isScript(owner) && isScript(next)) return enter(next as Cmd, parent, ni + 1, 0, false);
   return at(parent, ni + 1);
 }
 
@@ -35,6 +43,8 @@ export function moveLeft(root: Row, c: Cursor): Cursor | null {
   const [ni, si] = c.path[c.path.length - 1];
   const parent = c.path.slice(0, -1);
   if (si > 0) return at([...parent, [ni, si - 1]], rowAt(root, [...parent, [ni, si - 1]]).length);
+  const prev = rowAt(root, parent)[ni - 1];
+  if (isScript(ownerOf(root, c.path)!) && isScript(prev)) return enter(prev as Cmd, parent, ni - 1, 0, true);
   return at(parent, ni);
 }
 
@@ -75,11 +85,27 @@ function letterRun(root: Row, c: Cursor): number {
   return c.off - i;
 }
 
-function place(root: Row, c: Cursor, node: MNode, from: number): Cursor {
+/** Replace row[from..cursor) with `nodes`; the cursor goes into the first structure, else after them. */
+function place(root: Row, c: Cursor, nodes: MNode | MNode[], from: number): Cursor {
+  const list = Array.isArray(nodes) ? nodes : [nodes];
   const row = rowAt(root, c.path);
-  row.splice(from, c.off - from, node);
-  if (node.k === 'cmd') return enter(node, c.path, from, 0, false);
-  return at(c.path, from + 1);
+  row.splice(from, c.off - from, ...list);
+  const i = list.findIndex((n) => n.k === 'cmd');
+  if (i >= 0) return enter(list[i] as Cmd, c.path, from + i, 0, false);
+  return at(c.path, from + list.length);
+}
+
+function instantWord(root: Row, c: Cursor): Cursor | null {
+  const row = rowAt(root, c.path);
+  const n = letterRun(root, c);
+  const before = row[c.off - n - 1];
+  if (before?.k === 'sym' && before.tex === '\\') return null; // explicit \command: wait for space
+  const word = row.slice(c.off - n, c.off).map((x) => (x as { tex: string }).tex).join('');
+  for (let len = n; len >= 2; len--) {
+    const node = autoKeyword(word.slice(n - len));
+    if (node) return place(root, c, node, c.off - len);
+  }
+  return null;
 }
 
 /** Convert the word before the cursor into a keyword. `anySuffix` allows "xalpha" → x·α. */
@@ -141,6 +167,23 @@ export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
   }
   if (ch === '^' || ch === '_') {
     const name = ch === '^' ? 'sup' : 'sub';
+    // At the end of a script slot (e.g. a prefilled \sum): an empty slot of the same kind is
+    // used as is; the other script goes beside this one, not nested inside it.
+    if (owner && isScript(owner) && c.off === row.length) {
+      if (owner.name === name && !row.length) return c;
+      if (owner.name !== name) {
+        const [ni] = c.path[c.path.length - 1];
+        const parent = c.path.slice(0, -1);
+        const prow = rowAt(root, parent);
+        for (const j of [ni + 1, ni - 1]) {
+          const sib = prow[j];
+          if (sib?.k === 'cmd' && sib.name === name) return enter(sib, parent, j, 0, true);
+        }
+        const s = cmd(name);
+        prow.splice(ni + 1, 0, s);
+        return enter(s, parent, ni + 1, 0, false);
+      }
+    }
     const next = row[c.off];
     if (next?.k === 'cmd' && next.name === name) return enter(next, c.path, c.off, 0, true);
     return place(root, c, cmd(name), c.off);
@@ -159,6 +202,19 @@ export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
     return place(root, c, cmd('delim', 1, { open, close }), c.off);
   }
   if (ch === ' ') return c;
+  if (/[a-zA-Z]/.test(ch)) {
+    if (settings.instantKeywords) {
+      const n = letterRun(root, c);
+      const word = row.slice(c.off - n, c.off).map((x) => (x as { tex: string }).tex).join('');
+      if (settledKeyword(word, ch)) {
+        c = completeWord(root, c, false) ?? c;
+        return typeChar(root, c, ch);
+      }
+    }
+    row.splice(c.off, 0, sym(ch));
+    const next = at(c.path, c.off + 1);
+    return (settings.instantKeywords && instantWord(root, next)) || next;
+  }
   const tex = { '{': '\\{', '}': '\\}', '%': '\\%', '#': '\\#', '&': '\\&', '~': '\\sim', '\\': '\\' }[ch] ?? ch;
   row.splice(c.off, 0, sym(tex));
   return autoReplace(root, at(c.path, c.off + 1));

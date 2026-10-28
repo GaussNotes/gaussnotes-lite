@@ -2,6 +2,7 @@ import 'katex/dist/katex.min.css';
 import './style.css';
 import { onAiStatus } from './ai';
 import { DocEditor } from './doc/document';
+import { settings } from './math/editing';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -13,7 +14,7 @@ $$
 \\int_{-\\infty}^{\\infty} e^{-x^{2}}\\,dx=\\sqrt{\\pi}
 $$
 
-Inside an equation, try typing  x^2 space + y/2  or  sum_i=1 space ^n space . Click anywhere in an equation to put the cursor there. Press ⌘K to describe an equation in words, and Tab to accept gray suggestions.
+Inside an equation, try typing  x^2 space + y/2  or  sum i=1 space n space . Click anywhere in an equation to put the cursor there. Press ⌘K to describe an equation in words, and Tab to accept gray suggestions.
 `;
 
 // ---- file handling (File System Access API when available, download/upload otherwise)
@@ -155,6 +156,14 @@ onAiStatus((s, msg) => {
     flash(msg);
   }
 });
+
+const instant = $<HTMLInputElement>('instant-toggle');
+instant.checked = localStorage.getItem('gn-instant') !== '0';
+settings.instantKeywords = instant.checked;
+instant.onchange = () => {
+  settings.instantKeywords = instant.checked;
+  localStorage.setItem('gn-instant', instant.checked ? '1' : '0');
+};
 
 $('new').onclick = newFile;
 $('open').onclick = openFile;
