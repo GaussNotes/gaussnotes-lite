@@ -16,6 +16,8 @@ npm run dev                            # http://localhost:5173
   - ⌘B / ⌘I toggle bold / italic. Pasting a URL over selected text makes a link, and ⌘-click opens one.
 - Footnotes use Pandoc syntax: `[^label]` references with `[^label]: …` definition paragraphs, and inline `^[…]` notes. They're numbered by first appearance and show their text on hover. ⌘⌥F inserts the next reference and its definition at the end of the document.
 - Headings get section numbers (1, 1.1, 1.1.1, …) like Pandoc's `--number-sections`. The numbers are display only, never written to the file, and *Number headings* in the toolbar turns them off. End a heading with `{-}` (or `{.unnumbered}`) to leave it unnumbered, e.g. a title.
+- **Contents** (left side, toggled from the toolbar) lists the `#` and `##` headings with their numbers. Clicking one scrolls there and puts the caret on it, and the section you're reading is highlighted. On narrow windows it opens as an overlay.
+- **Theme:** the toolbar button cycles Auto (follows the OS), Light and Dark.
 - The document is plain markdown. **Open** and **Save** use the File System Access API in Chromium browsers and fall back to upload/download elsewhere. A draft autosaves to localStorage.
 - Typing `$` starts inline math. Typing `$` again in an empty equation on an empty line turns it into display math (`$$…$$`).
 - Inside an equation:

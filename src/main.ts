@@ -31,6 +31,7 @@ let saved = '';
 const doc = new DocEditor($('doc'), $<HTMLTextAreaElement>('math-input'), {
   onChange: () => {
     updateTitle();
+    scheduleToc();
     clearTimeout(autosave);
     autosave = window.setTimeout(() => localStorage.setItem('gn-draft', JSON.stringify({ md: doc.markdown(), filename })), 500);
   },
@@ -48,6 +49,7 @@ function updateTitle() {
 
 function setDoc(md: string, name: string, h: Handle | null, isSaved: boolean) {
   doc.load(md);
+  scheduleToc();
   filename = name;
   handle = h;
   saved = isSaved ? doc.markdown() : '';
@@ -134,6 +136,74 @@ function openPrompt(anchor: DOMRect | null, label: string): Promise<string | nul
   });
 }
 
+// ---- table of contents (# and ## headings)
+
+const toc = $('toc');
+let tocFrame = 0;
+function scheduleToc() {
+  cancelAnimationFrame(tocFrame);
+  tocFrame = requestAnimationFrame(renderToc);
+}
+function renderToc() {
+  const items = doc.headings(2);
+  const numbered = $('doc').classList.contains('numbered');
+  toc.replaceChildren(Object.assign(document.createElement('div'), { className: 'toc-title', textContent: 'Contents' }));
+  if (!items.length) toc.append(Object.assign(document.createElement('div'), { className: 'toc-empty', textContent: 'No headings yet' }));
+  for (const h of items) {
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = `h${h.level}`;
+    a.dataset.index = String(h.index);
+    if (numbered && h.secnum) a.append(Object.assign(document.createElement('span'), { className: 'num', textContent: h.secnum }));
+    const label = document.createElement('span');
+    label.className = 'label';
+    if (h.text) label.append(...h.content);
+    else label.textContent = 'Untitled';
+    a.append(label);
+    a.onclick = (e) => {
+      e.preventDefault();
+      doc.goTo(h.index);
+    };
+    toc.append(a);
+  }
+  highlightToc();
+}
+/** Highlight the section being read: the last listed heading above the top of the viewport. */
+function highlightToc() {
+  const links = [...toc.querySelectorAll<HTMLAnchorElement>('a')];
+  let active: HTMLAnchorElement | undefined;
+  for (const a of links) {
+    const el = $('doc').children[+a.dataset.index!];
+    if (el && el.getBoundingClientRect().top <= 110) active = a;
+  }
+  active ??= links[0];
+  links.forEach((a) => a.classList.toggle('active', a === active));
+}
+window.addEventListener('scroll', highlightToc, { passive: true });
+const tocPref = localStorage.getItem('gn-toc');
+document.body.classList.toggle('toc-visible', tocPref ? tocPref === '1' : innerWidth > 1240);
+$('toc-btn').onclick = () => {
+  const on = document.body.classList.toggle('toc-visible');
+  localStorage.setItem('gn-toc', on ? '1' : '0');
+};
+
+// ---- theme: auto (follows the OS) / light / dark
+
+type Theme = 'auto' | 'light' | 'dark';
+const dark = matchMedia('(prefers-color-scheme: dark)');
+let theme = (localStorage.getItem('gn-theme') as Theme) || 'auto';
+function applyTheme() {
+  document.documentElement.dataset.theme = theme === 'auto' ? (dark.matches ? 'dark' : 'light') : theme;
+  $('theme-btn').textContent = { auto: '◐ Auto', light: '☀ Light', dark: '☾ Dark' }[theme];
+}
+dark.addEventListener('change', applyTheme);
+$('theme-btn').onclick = () => {
+  theme = ({ auto: 'light', light: 'dark', dark: 'auto' } as const)[theme];
+  localStorage.setItem('gn-theme', theme);
+  applyTheme();
+};
+applyTheme();
+
 // ---- misc UI
 
 let flashTimer = 0;
@@ -162,6 +232,7 @@ numbering.checked = localStorage.getItem('gn-numbered') !== '0';
 $('doc').classList.toggle('numbered', numbering.checked);
 numbering.onchange = () => {
   $('doc').classList.toggle('numbered', numbering.checked);
+  scheduleToc();
   localStorage.setItem('gn-numbered', numbering.checked ? '1' : '0');
 };
 

@@ -101,6 +101,30 @@ export class DocEditor implements IslandHost {
     this.editing = null;
     this.renumberFootnotes();
     if (resetHistory) this.history.reset(this.markdown(), { b: 0, off: 0 });
+    this.opts.onChange();
+  }
+
+  /** Headings up to `maxLevel`, as displayed (markers removed, equations as rendered text). */
+  headings(maxLevel = 2): { index: number; level: number; text: string; secnum?: string; el: HTMLElement; content: Node[] }[] {
+    return [...this.root.children].flatMap((el, index) => {
+      const m = /\bh([1-6])\b/.exec(el.className);
+      if (!m || +m[1] > maxLevel) return [];
+      const copy = el.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('.md-mark, .m-caret, .m-sel').forEach((e) => e.remove());
+      const text = strip(copy.textContent ?? '').trim();
+      // Rendered copy for display (equations keep their KaTeX rendering), not editable.
+      copy.querySelectorAll('[contenteditable]').forEach((e) => e.removeAttribute('contenteditable'));
+      copy.querySelectorAll('.math').forEach((e) => e.classList.remove('active'));
+      return [{ index, level: +m[1], text, secnum: (el as HTMLElement).dataset.secnum, el: el as HTMLElement, content: [...copy.childNodes] }];
+    });
+  }
+
+  /** Jump to a block: caret at its end, block scrolled to the top. */
+  goTo(index: number) {
+    const el = this.root.children[index];
+    if (!el) return;
+    this.setPos({ b: index, off: Infinity });
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   markdown(marker?: MathIsland): string {

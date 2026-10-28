@@ -4,12 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GaussNotes Lite</title>
+    <script>
+      // Set the theme before first paint (main.ts takes over after).
+      const t = localStorage.getItem('gn-theme') || 'auto';
+      document.documentElement.dataset.theme = t === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t;
+    </script>
   </head>
   <body>
     <header class="bar">
       <span class="brand">Gauss<b>Notes</b></span>
       <span id="filename" class="filename">Untitled.md</span>
       <span class="spacer"></span>
+      <button id="toc-btn" title="Show / hide the table of contents">Contents</button>
       <button id="new" title="New document">New</button>
       <button id="open" title="Open markdown (⌘O)">Open</button>
       <button id="save" title="Save (⌘S)">Save</button>
@@ -23,8 +29,10 @@
         <input id="ai-toggle" type="checkbox" checked /> AI suggestions
       </label>
       <span id="ai-status" class="ai-status idle" title="AI status"></span>
+      <button id="theme-btn" title="Theme: auto / light / dark">◐ Auto</button>
       <button id="help-btn" title="Shortcuts">?</button>
     </header>
+    <nav id="toc" class="toc" aria-label="Table of contents"></nav>
     <main>
       <div id="doc" class="doc"></div>
     </main>

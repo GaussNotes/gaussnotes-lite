@@ -3,7 +3,7 @@ import { chromium } from 'playwright';
 const url = process.argv[2] ?? 'http://localhost:5199';
 const shots = process.argv[3] ?? '.';
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
-const context = await browser.newContext({ viewport: { width: 1000, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
+const context = await browser.newContext({ viewport: { width: 1400, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
 const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -311,6 +311,34 @@ const nums = await page.evaluate(() => [...document.querySelectorAll('.blk[class
 check('headings numbered 1 / 1.1 / 1.1.1, {-} skipped', nums, '- 1 1.1 1.1.1 1.2 2 2.1');
 check('numbers are not saved into the file', await md(), '# Title {-}\n\n# Intro');
 await page.screenshot({ path: `${shots}/18-numbered.png` });
+
+// ---- table of contents and theme
+const long = ['# Analysis {-}', '# Sequences', 'text '.repeat(200), '## Limits of $a_{n}$', 'text '.repeat(200), '### Deep detail', 'more', '## Cauchy', 'text '.repeat(200), '# Series', 'text '.repeat(400)].join('\n\n');
+await page.evaluate((m) => window.gn.load(m), long);
+await page.waitForTimeout(100);
+const tocText = await page.locator('#toc a').allInnerTexts();
+check('contents list # and ## only, with numbers', tocText.map((t) => t.replace(/[\s\u200B]+/g, ' ').trim()).join(' | '), 'Analysis | 1 Sequences | 1.1 Limits of a n | 1.2 Cauchy | 2 Series');
+check('equations in headings render in the contents', String(await page.locator('#toc .katex').count()), '1');
+await page.locator('#toc a', { hasText: 'Cauchy' }).click();
+await page.waitForTimeout(700);
+const cauchyTop = await page.evaluate(() => [...document.querySelectorAll('.blk.h2')].find((b) => b.textContent.includes('Cauchy')).getBoundingClientRect().top);
+check('clicking an entry scrolls to the heading', String(cauchyTop > 40 && cauchyTop < 140), 'true');
+check('…and highlights it', await page.locator('#toc a.active').innerText().then((t) => t.replace(/\s+/g, ' ')), '1.2 Cauchy');
+check('…and puts the caret there', await page.evaluate(() => getSelection().focusNode?.parentElement?.closest('.blk')?.textContent.includes('Cauchy')).then(String), 'true');
+await page.screenshot({ path: `${shots}/19-toc-light.png` });
+await page.click('#theme-btn'); // auto → light
+await page.click('#theme-btn'); // light → dark
+check('theme button switches to dark', await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+await page.waitForTimeout(350); // let the color transition finish
+check('dark paper color applied', await page.evaluate(() => getComputedStyle(document.querySelector('.doc')).backgroundColor), 'rgb(28, 30, 34)');
+await page.evaluate(() => window.gn.load('# Dark *mode* {-}\n\nText with $\\int_0^1 x\\,dx$, **bold**, a [link](https://x.org) and a note[^1].\n\n$$\n\\sum_{n=1}^{\\infty}\\frac{1}{n^{2}}=\\frac{\\pi^{2}}{6}\n$$\n\n> A quote.\n\n[^1]: The note.'));
+await page.waitForTimeout(100);
+await page.screenshot({ path: `${shots}/20-dark.png` });
+await page.reload();
+await page.waitForSelector('.math');
+check('theme remembered after reload', await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+await page.click('#theme-btn'); // dark → auto
+await page.evaluate(() => localStorage.removeItem('gn-theme'));
 
 await page.screenshot({ path: `${shots}/6-final.png`, fullPage: true });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
