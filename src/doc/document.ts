@@ -1,4 +1,4 @@
-import { complete, generate } from '../ai';
+import { cleanLatex, complete, generate } from '../ai';
 import { type Dir, type IslandHost, MathIsland } from '../math/island';
 import { parseTex, toTex } from '../math/latex';
 import { type Cursor, pathKey, rowAt, sym } from '../math/model';
@@ -8,6 +8,8 @@ import { type Block, type Part, parseMarkdown, serializeInline, serializeMarkdow
 const ZW = '​';
 const strip = (s: string) => s.replaceAll(ZW, '');
 const EQ_MARK = '⟦EQ⟧';
+/** Clipboard type marking LaTeX copied from an equation, so pasting it into text makes an equation again. */
+const TEX_MIME = 'application/x-gaussnotes-tex';
 
 type Leaf = Text | HTMLElement; // text node, inline math element, or <br>
 
@@ -52,14 +54,20 @@ export class DocEditor implements IslandHost {
     input.addEventListener('compositionend', flush);
     input.addEventListener('paste', (e) => {
       e.preventDefault();
-      const t = e.clipboardData?.getData('text/plain') ?? '';
-      this.active?.insertTex(t.trim().replace(/^\$+|\$+$/g, ''));
+      const t = e.clipboardData?.getData(TEX_MIME) || e.clipboardData?.getData('text/plain') || '';
+      this.active?.insertTex(cleanLatex(t));
     });
-    input.addEventListener('copy', (e) => {
+    // Copy/cut inside an equation: the selection (or the whole equation) as plain LaTeX.
+    const copyTex = (e: ClipboardEvent, cut: boolean) => {
       if (!this.active) return;
       e.preventDefault();
-      e.clipboardData?.setData('text/plain', this.active.tex);
-    });
+      const tex = this.active.selectedTex() ?? this.active.tex;
+      e.clipboardData?.setData('text/plain', tex);
+      e.clipboardData?.setData(TEX_MIME, tex);
+      if (cut) this.active.removeSelection();
+    };
+    input.addEventListener('copy', (e) => copyTex(e, false));
+    input.addEventListener('cut', (e) => copyTex(e, true));
     input.addEventListener('blur', () => {
       if (!this.busy && this.active && document.activeElement !== input) this.deactivate();
     });
@@ -495,7 +503,20 @@ export class DocEditor implements IslandHost {
     const isl = el && this.islands.get(el);
     if (isl) {
       e.preventDefault();
-      this.activate(isl, isl.hitTest(e.clientX, e.clientY));
+      const hit = isl.hitTest(e.clientX, e.clientY);
+      if (e.shiftKey && this.active === isl) isl.extendTo(hit);
+      else this.activate(isl, hit);
+      // Dragging selects; positions come from the same geometry as clicks.
+      const move = (m: MouseEvent) => {
+        const c = isl.hitTest(m.clientX, m.clientY);
+        if (isl.cursor && (pathKey(c.path) !== pathKey(isl.cursor.path) || c.off !== isl.cursor.off)) isl.extendTo(c);
+      };
+      const up = () => {
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
       return;
     }
     if (this.active) this.deactivate();
@@ -668,8 +689,13 @@ export class DocEditor implements IslandHost {
 
   private onPaste(e: ClipboardEvent) {
     e.preventDefault();
-    const text = e.clipboardData?.getData('text/plain');
+    // Part of an equation copied here: paste it as an equation.
+    const tex = e.clipboardData?.getData(TEX_MIME);
+    if (tex) return void this.insertIsland(tex, false);
+    let text = e.clipboardData?.getData('text/plain');
     if (!text) return;
+    // LaTeX-style delimiters from elsewhere: \[…\] is display math, \(…\) inline.
+    text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `\n\n$$${m}$$\n\n`).replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m.trim()}$`);
     const sel = getSelection()!;
     if (!sel.isCollapsed) sel.deleteFromDocument();
     const blocks = parseMarkdown(text);

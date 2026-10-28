@@ -23,6 +23,8 @@ npm run dev                            # http://localhost:5173
   - Shortcuts convert as you type: `<=` `>=` `!=` `->` `=>` `+-` `...`
   - Arrow keys walk the structure. → at the end of any slot (exponent, subscript, numerator, root, brackets, matrix cell, limits) lands just after the whole object, still in the equation; another → leaves it. ← works the same way. ↑/↓ move between numerator and denominator, sub and sup, or matrix rows. Space at the end of a slot steps out of it. `^` at the end of a subscript (or `_` at the end of a superscript) adds the other script beside it rather than nesting it.
   - Clicking anywhere in a rendered equation puts the cursor at that spot.
+- Selecting inside an equation: Shift+←/→ (it grows by whole nodes and, at the edge of a slot, to the whole fraction/script/bracket), mouse drag, Shift+click, ⌘A. With a selection, `(` wraps it in brackets, `/` makes it a numerator, and any other key replaces it.
+- Clipboard: ⌘C / ⌘X in an equation copy the selection (or the whole equation) as plain LaTeX. Pasting LaTeX into an equation parses it into structure. Pasting into text makes an inline equation when the content came from an equation, and `\(…\)` / `\[…\]` from elsewhere become inline / display math. Copying a text selection gives markdown with `$…$`.
 - ⌘Z / ⇧⌘Z undo and redo across both text and math.
 
 ## AI
@@ -59,5 +61,4 @@ node test/e2e.mjs http://localhost:5173 /tmp   # drives the real editor (AI call
 ## Limits
 
 - Text is stored and shown verbatim. Headings and quotes get styling, but there is no bold or italic rendering.
-- No selection inside equations yet.
 - `$` inside code spans in a markdown file will be read as math.

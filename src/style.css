@@ -64,6 +64,7 @@ div.math.display { display: block; margin: 0.4em 0 0.9em; padding: 2px 0; }
 .math.loading { animation: pulse 0.7s infinite alternate; }
 .math .gn-ph { color: #b8bcc4; }
 .math .gn-ghost { color: #a8adb6; opacity: 0.85; }
+.m-sel { position: absolute; display: none; background: rgba(59, 108, 246, 0.22); border-radius: 2px; pointer-events: none; }
 .m-caret {
   position: absolute; display: none; width: 1.5px; background: var(--accent);
   pointer-events: none; animation: blink 1.05s steps(1) infinite;

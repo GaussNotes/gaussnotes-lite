@@ -3,7 +3,8 @@ import { chromium } from 'playwright';
 const url = process.argv[2] ?? 'http://localhost:5199';
 const shots = process.argv[3] ?? '.';
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
-const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+const context = await browser.newContext({ viewport: { width: 1000, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
+const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && !/503|Failed to load/.test(m.text()) && errors.push(m.text()));
@@ -186,6 +187,66 @@ await page.keyboard.type(' $lim');
 await page.keyboard.type('n');
 check('lim converts instantly when instant symbols are on', await md(), '$\\lim_{n}$');
 await page.keyboard.press('Escape');
+
+// ---- selection, copy/paste as LaTeX
+const clip = () => page.evaluate(() => navigator.clipboard.readText());
+const nodeBox = (text) => page.locator('div.math [data-n]').filter({ hasText: new RegExp(`^${text}$`) }).first().boundingBox();
+await page.evaluate(() => window.gn.load('$$\nx^{2}+\\frac{a}{b}=c\n$$\n\nsome text'));
+let cb = await nodeBox('c');
+await page.mouse.click(cb.x + cb.width + 2, cb.y + cb.height / 2); // after c
+for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowLeft');
+await page.screenshot({ path: `${shots}/11-selection.png` });
+const selShown = await page.evaluate(() => getComputedStyle(document.querySelector('.math.active .m-sel')).display);
+check('shift+← shows a selection highlight', selShown, 'block');
+await page.keyboard.press('Meta+c');
+check('⌘C copies the selected part as LaTeX', await clip(), '\\frac{a}{b}=c');
+await page.keyboard.type('(');
+check('( wraps the selection', await md(), 'x^{2}+\\left( \\frac{a}{b}=c \\right)');
+await page.keyboard.press('Meta+z');
+check('undo unwraps', await md(), 'x^{2}+\\frac{a}{b}=c');
+
+// Drag across x² and + then delete.
+await page.evaluate(() => window.gn.load('$$\nx^{2}+\\frac{a}{b}=c\n$$\n\nsome text'));
+const xb = await nodeBox('x');
+const pb = await nodeBox('\\+');
+await page.mouse.move(xb.x + 1, xb.y + xb.height / 2);
+await page.mouse.down();
+await page.mouse.move(pb.x + pb.width - 1, pb.y + pb.height / 2, { steps: 5 });
+await page.mouse.up();
+await page.keyboard.press('Meta+c');
+check('mouse drag selects', await clip(), 'x^{2}+');
+await page.keyboard.press('Backspace');
+check('backspace deletes the selection', await md(), '$$\n\\frac{a}{b}=c\n$$');
+
+// Paste the copied part into text: it becomes an inline equation.
+await page.keyboard.press('Escape');
+await page.locator('.blk').last().click();
+await page.keyboard.press('End');
+await page.keyboard.type(' ');
+await page.keyboard.press('Meta+v');
+check('pasting equation LaTeX into text makes an equation', await md(), 'some text $x^{2}+$');
+await page.keyboard.press('Escape');
+
+// Paste plain LaTeX from elsewhere into an equation: parsed (and brackets normalized).
+await page.evaluate(() => navigator.clipboard.writeText('\\bigl(a+b\\bigr)^2'));
+await page.evaluate(() => window.gn.load('$$\ny=\n$$'));
+cb = await nodeBox('=');
+await page.mouse.click(cb.x + cb.width + 4, cb.y + cb.height / 2);
+await page.keyboard.press('Meta+v');
+check('pasted LaTeX becomes structure', await md(), 'y=\\left( a+b \\right)^{2}');
+// ⌘A then typing replaces everything.
+await page.keyboard.press('Meta+a');
+await page.keyboard.type('z');
+check('⌘A + type replaces the equation', await md(), '$$\nz\n$$');
+await page.keyboard.press('Escape');
+
+// \( \) and \[ \] pasted into text.
+await page.evaluate(() => navigator.clipboard.writeText('see \\(e^{x}\\) here'));
+await page.evaluate(() => window.gn.load('start'));
+await page.locator('.blk').last().click();
+await page.keyboard.press('End');
+await page.keyboard.press('Meta+v');
+check('\\( \\) pasted into text becomes inline math', await md(), 'startsee $e^{x}$ here');
 
 await page.screenshot({ path: `${shots}/6-final.png`, fullPage: true });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');

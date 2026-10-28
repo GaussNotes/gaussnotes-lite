@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseTex, toTex } from '../src/math/latex';
-import { backspace, completeWord, moveLeft, moveRight, settings, space, typeChar } from '../src/math/editing';
+import { backspace, completeWord, deleteRange, extendLeft, extendRight, moveLeft, moveRight, rangeNodes, selectionRange, settings, space, typeChar, wrapRange } from '../src/math/editing';
 import type { Cursor, Row } from '../src/math/model';
 
 // ' ' is space, '⇥' is Tab.
@@ -176,5 +176,39 @@ describe('typing', () => {
     let n = 0;
     while (c) { n++; c = moveLeft(root, c); }
     expect(n).toBe(7);
+  });
+});
+
+describe('selection', () => {
+  const root = () => parseTex('x^{2}+\\frac{a}{b}=c');
+  it('is a run of nodes in the deepest common row', () => {
+    const r = root();
+    expect(toTex(rangeNodes(r, selectionRange({ path: [], off: 6 }, { path: [], off: 3 })!))).toBe('\\frac{a}{b}=c');
+    // one end inside the fraction: the whole fraction is selected
+    expect(toTex(rangeNodes(r, selectionRange({ path: [[3, 1]], off: 1 }, { path: [], off: 6 })!))).toBe('\\frac{a}{b}=c');
+    // both ends in the numerator: just that part
+    const r2 = parseTex('\\frac{abc}{d}');
+    expect(toTex(rangeNodes(r2, selectionRange({ path: [[0, 0]], off: 0 }, { path: [[0, 0]], off: 2 })!))).toBe('ab');
+    // numerator to denominator: the fraction
+    expect(toTex(rangeNodes(r2, selectionRange({ path: [[0, 0]], off: 1 }, { path: [[0, 1]], off: 1 })!))).toBe('\\frac{abc}{d}');
+    expect(selectionRange({ path: [], off: 2 }, { path: [], off: 2 })).toBeNull();
+  });
+  it('shift-arrows step over whole nodes and grow out of slots', () => {
+    const r = root();
+    expect(extendLeft(r, { path: [], off: 4 })).toEqual({ path: [], off: 3 }); // over the fraction, not into it
+    expect(extendRight(r, { path: [[3, 0]], off: 1 })).toEqual({ path: [], off: 4 }); // end of numerator → after fraction
+    expect(extendLeft(r, { path: [], off: 0 })).toEqual({ path: [], off: 0 });
+  });
+  it('delete and wrap', () => {
+    const r = root();
+    deleteRange(r, { path: [], lo: 0, hi: 3 });
+    expect(toTex(r)).toBe('\\frac{a}{b}=c');
+    const r2 = parseTex('a+b');
+    wrapRange(r2, { path: [], lo: 0, hi: 3 }, '(');
+    expect(toTex(r2)).toBe('\\left( a+b \\right)');
+    const r3 = parseTex('a+b');
+    const c = wrapRange(r3, { path: [], lo: 0, hi: 3 }, '/');
+    expect(toTex(r3)).toBe('\\frac{a+b}{}');
+    expect(c).toEqual({ path: [[0, 1]], off: 0 });
   });
 });

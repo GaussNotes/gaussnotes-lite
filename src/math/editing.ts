@@ -336,3 +336,58 @@ export function insertRow(root: Row, c: Cursor, nodes: Row): Cursor {
 }
 
 export const endOf = (root: Row): Cursor => at([], root.length);
+
+// ---- selection -------------------------------------------------------------
+// A selection is a contiguous run of nodes in one row: the deepest row holding both ends.
+// An end inside a structure selects that whole structure.
+
+export interface Range {
+  path: Step[];
+  lo: number;
+  hi: number;
+}
+
+export function selectionRange(a: Cursor, b: Cursor): Range | null {
+  let d = 0;
+  while (d < a.path.length && d < b.path.length && a.path[d][0] === b.path[d][0] && a.path[d][1] === b.path[d][1]) d++;
+  const span = (c: Cursor): [number, number] => (c.path.length === d ? [c.off, c.off] : [c.path[d][0], c.path[d][0] + 1]);
+  const [a0, a1] = span(a);
+  const [b0, b1] = span(b);
+  const lo = Math.min(a0, b0);
+  const hi = Math.max(a1, b1);
+  return lo === hi ? null : { path: a.path.slice(0, d), lo, hi };
+}
+
+/** Shift+→: step over whole nodes; at the end of a slot, grow to the structure around it. */
+export function extendRight(root: Row, c: Cursor): Cursor {
+  if (c.off < rowAt(root, c.path).length) return at(c.path, c.off + 1);
+  if (!c.path.length) return c;
+  return at(c.path.slice(0, -1), c.path[c.path.length - 1][0] + 1);
+}
+
+export function extendLeft(root: Row, c: Cursor): Cursor {
+  if (c.off > 0) return at(c.path, c.off - 1);
+  if (!c.path.length) return c;
+  return at(c.path.slice(0, -1), c.path[c.path.length - 1][0]);
+}
+
+export const rangeNodes = (root: Row, r: Range): Row => rowAt(root, r.path).slice(r.lo, r.hi);
+
+export function deleteRange(root: Row, r: Range): Cursor {
+  rowAt(root, r.path).splice(r.lo, r.hi - r.lo);
+  return at(r.path, r.lo);
+}
+
+/** Typing ( or / over a selection wraps it instead of replacing it. */
+export function wrapRange(root: Row, r: Range, ch: '(' | '/'): Cursor {
+  const row = rowAt(root, r.path);
+  const inner = row.splice(r.lo, r.hi - r.lo);
+  if (ch === '(') {
+    row.splice(r.lo, 0, cmd('delim', 1, { open: '(', close: ')', slots: [inner] }));
+    return at(r.path, r.lo + 1);
+  }
+  const frac = cmd('frac', 2);
+  frac.slots[0] = inner;
+  row.splice(r.lo, 0, frac);
+  return enter(frac, r.path, r.lo, 1, false);
+}

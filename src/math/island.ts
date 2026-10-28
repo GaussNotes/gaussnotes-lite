@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { backspace, completeWord, del, endOf, insertRow, moveLeft, moveRight, space, typeChar, verticalTarget } from './editing';
+import { backspace, completeWord, del, deleteRange, endOf, extendLeft, extendRight, insertRow, moveLeft, moveRight, type Range, rangeNodes, selectionRange, space, typeChar, verticalTarget, wrapRange } from './editing';
 import { bareDelim, parseTex, type RenderMap, toInstrumentedTex, toTex } from './latex';
 import { type Cursor, isScript, isTextRow, ownerOf, pathKey, type Row, rowAt, type Step } from './model';
 
@@ -77,8 +77,11 @@ export class MathIsland {
   root: Row;
   cursor: Cursor | null = null;
   ghost: Row | null = null;
+  /** Selection anchor; the selection runs from here to `cursor`. */
+  anchor: Cursor | null = null;
   readonly content: HTMLElement;
   readonly caret: HTMLElement;
+  private readonly selBox: HTMLElement;
   private map: RenderMap = { nodes: [], rows: [] };
   private rows = new Map<string, RowInfo>();
   private els = new Map<string, Element>();
@@ -93,6 +96,8 @@ export class MathIsland {
     el.className = display ? 'math display' : 'math';
     el.contentEditable = 'false';
     el.replaceChildren();
+    this.selBox = el.appendChild(document.createElement('span'));
+    this.selBox.className = 'm-sel';
     this.content = el.appendChild(document.createElement('span'));
     this.caret = el.appendChild(document.createElement('span'));
     this.caret.className = 'm-caret';
@@ -231,7 +236,33 @@ export class MathIsland {
     return b && { left: x, right: x, top: b.top, bottom: b.bottom };
   }
 
+  private placeSelection() {
+    const r = this.selection();
+    const info = r && this.rows.get(pathKey(r.path));
+    if (!r || !info || info.empty !== undefined) {
+      this.selBox.style.display = 'none';
+      return;
+    }
+    const xs = this.stops(info);
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (let i = r.lo; i < r.hi; i++) {
+      const b = this.box(info.ids[i]);
+      if (b) [top, bottom] = [Math.min(top, b.top), Math.max(bottom, b.bottom)];
+    }
+    if (top === Infinity) return void (this.selBox.style.display = 'none');
+    const o = this.el.getBoundingClientRect();
+    Object.assign(this.selBox.style, {
+      display: 'block',
+      left: `${xs[r.lo] - o.left}px`,
+      width: `${Math.max(xs[r.hi] - xs[r.lo], 2)}px`,
+      top: `${top - o.top - 1}px`,
+      height: `${bottom - top + 2}px`,
+    });
+  }
+
   private placeCaret() {
+    this.placeSelection();
     const b = this.cursor && this.caretBox(this.cursor);
     if (!b) {
       this.caret.style.display = 'none';
@@ -282,6 +313,7 @@ export class MathIsland {
 
   activate(c: Cursor | 'start' | 'end') {
     this.cursor = c === 'start' ? { path: [], off: 0 } : c === 'end' ? endOf(this.root) : c;
+    this.anchor = null;
     this.render();
   }
 
@@ -298,6 +330,7 @@ export class MathIsland {
   deactivate() {
     this.finishWord();
     this.cursor = null;
+    this.anchor = null;
     this.ghost = null;
     this.render();
   }
@@ -316,7 +349,8 @@ export class MathIsland {
 
   insertTex(tex: string) {
     if (!this.cursor) return;
-    this.cursor = insertWithClosers(this.root, this.cursor, parseTex(tex));
+    this.deleteSelection();
+    this.cursor = insertWithClosers(this.root, this.cursor!, parseTex(tex));
     this.commit();
   }
 
@@ -348,8 +382,65 @@ export class MathIsland {
     this.move({ path: target, off }, 'up');
   }
 
+  // ---- selection ---------------------------------------------------------
+
+  selection(): Range | null {
+    return this.anchor && this.cursor ? selectionRange(this.anchor, this.cursor) : null;
+  }
+
+  /** LaTeX of the selection, or null if nothing is selected. */
+  selectedTex(): string | null {
+    const r = this.selection();
+    return r ? toTex(rangeNodes(this.root, r)) : null;
+  }
+
+  /** Move the selection's moving end (mouse drag, shift+click). */
+  extendTo(c: Cursor) {
+    this.anchor ??= this.cursor && structuredClone(this.cursor);
+    this.cursor = c;
+    this.ghost = null;
+    this.render();
+  }
+
+  selectAll() {
+    this.anchor = { path: [], off: 0 };
+    this.cursor = endOf(this.root);
+    this.ghost = null;
+    this.render();
+  }
+
+  /** Delete the selection (if any) and return whether there was one. */
+  deleteSelection(): boolean {
+    const r = this.selection();
+    this.anchor = null;
+    if (!r) return false;
+    this.cursor = deleteRange(this.root, r);
+    return true;
+  }
+
+  /** Cut: delete the selection as one undoable edit. */
+  removeSelection() {
+    if (this.deleteSelection()) this.commit();
+  }
+
+  private collapse(to: 'lo' | 'hi') {
+    const r = this.selection()!;
+    this.anchor = null;
+    this.move({ path: r.path, off: r[to] }, 'right');
+  }
+
   typeText(text: string) {
     if (!this.cursor) return;
+    const r = this.selection();
+    if (r) {
+      this.anchor = null;
+      this.ghost = null;
+      if (text[0] === '(' || text[0] === '/') {
+        this.cursor = wrapRange(this.root, r, text[0]);
+        text = text.slice(1);
+      } else this.cursor = deleteRange(this.root, r);
+      if (!text) return this.commit();
+    }
     for (const ch of text) {
       if (ch === '$') return this.host.exit(this, 'right');
       const g = this.ghost;
@@ -369,9 +460,50 @@ export class MathIsland {
       if (k === 'z') e.shiftKey ? this.host.redo() : this.host.undo();
       else if (k === 'y') this.host.redo();
       else if (k === 'k') this.host.commandK();
+      else if (k === 'a') this.selectAll();
       else return false;
       return true;
     }
+    if (e.shiftKey && ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      this.finishWord();
+      const c = this.cursor!;
+      this.anchor ??= structuredClone(c);
+      if (e.key === 'ArrowLeft') this.cursor = extendLeft(this.root, c);
+      else if (e.key === 'ArrowRight') this.cursor = extendRight(this.root, c);
+      else if (e.key === 'Home') this.cursor = { path: [], off: 0 };
+      else if (e.key === 'End') this.cursor = endOf(this.root);
+      this.ghost = null;
+      this.render();
+      return true;
+    }
+    const sel = this.selection();
+    if (sel) {
+      switch (e.key) {
+        case 'ArrowLeft':
+        case 'ArrowUp':
+        case 'Home':
+          this.collapse('lo');
+          return true;
+        case 'ArrowRight':
+        case 'ArrowDown':
+        case 'End':
+          this.collapse('hi');
+          return true;
+        case 'Backspace':
+        case 'Delete':
+          this.deleteSelection();
+          this.commit();
+          return true;
+        case 'Escape':
+          this.anchor = null;
+          this.render();
+          return true;
+        case 'Tab':
+        case 'Enter':
+          this.anchor = null;
+          break;
+      }
+    } else this.anchor = null;
     // Tab converts a pending word itself (and then stays put), so it isn't in this list.
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Home', 'End', '$'].includes(e.key)) {
       if (e.key !== 'Escape' || !this.ghost) this.finishWord();
