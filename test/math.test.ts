@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { parseTex, toTex } from '../src/math/latex';
-import { backspace, moveLeft, moveRight, settings, space, typeChar } from '../src/math/editing';
+import { backspace, completeWord, moveLeft, moveRight, settings, space, typeChar } from '../src/math/editing';
 import type { Cursor, Row } from '../src/math/model';
 
+// ' ' is space, '⇥' is Tab.
 const type = (s: string, root: Row = [], c: Cursor = { path: [], off: 0 }) => {
-  for (const ch of s) c = ch === ' ' ? space(root, c) : typeChar(root, c, ch);
+  for (const ch of s) c = ch === ' ' ? space(root, c) : ch === '⇥' ? (completeWord(root, c, true, true) ?? moveRight(root, c) ?? c) : typeChar(root, c, ch);
   return { root, c, tex: toTex(root) };
 };
 
@@ -30,6 +31,25 @@ describe('latex round-trip', () => {
     expect(toTex(parseTex('x^2'))).toBe('x^{2}');
     expect(toTex(parseTex('\\frac12'))).toBe('\\frac{1}{2}');
     expect(parseTex('\\foo{'))  .toEqual([{ k: 'raw', tex: '\\foo{' }]);
+  });
+});
+
+describe('normalizing LaTeX from AI / paste / files', () => {
+  it('turns matched brackets into \\left…\\right structures', () => {
+    expect(toTex(parseTex('f(x)=(a+b)[c]'))).toBe('f\\left( x \\right)=\\left( a+b \\right)\\left[ c \\right]');
+    expect(toTex(parseTex('\\{x\\}+\\langle v \\rangle'))).toBe('\\left\\{ x \\right\\}+\\left\\langle v \\right\\rangle');
+    expect(toTex(parseTex('\\bigl( x \\bigr)'))).toBe('\\left( x \\right)');
+    expect(toTex(parseTex('(a(b)c)'))).toBe('\\left( a\\left( b \\right)c \\right)');
+    expect(toTex(parseTex('\\frac{(1)}{2}'))).toBe('\\frac{\\left( 1 \\right)}{2}');
+  });
+  it('leaves unmatched brackets alone', () => {
+    expect(toTex(parseTex('[0,1)'))).toBe('[0,1)');
+    expect(toTex(parseTex('x)'))).toBe('x)');
+  });
+  it('drops \\limits and keeps \\middle / \\mod renderable', () => {
+    expect(toTex(parseTex('\\sum\\limits_{i}'))).toBe('\\sum_{i}');
+    expect(toTex(parseTex('\\left\\langle a \\middle| b \\right\\rangle'))).toBe('\\left\\langle a\\middle|b \\right\\rangle');
+    expect(toTex(parseTex('a\\mod n'))).toBe('a\\mod{n}');
   });
 });
 
@@ -74,12 +94,20 @@ describe('typing', () => {
     expect(type('ddxf').tex).toBe('\\frac{df}{d}');
     expect(type('ddelf').tex).toBe('\\frac{\\partial f}{\\partial}');
     expect(type('pii+xii+psii').tex).toBe('\\pi+\\xi+\\psi');
-    expect(type('pir').tex).toBe('\\pi r');
+    expect(type('pir').tex).toBe('pir'); // plain alias: needs space/Tab, as in the original
+    expect(type('pi r').tex).toBe('\\pi r');
     expect(type('Asub=B').tex).toBe('A\\subseteq B');
     expect(type('Au++B').tex).toBe('A\\uplus B');
-    expect(type('anot=b').tex).toBe('a\\neq b');
+    expect(type('anot= b').tex).toBe('a\\neq b');
+    expect(type('n!=1').tex).toBe('n!=1'); // factorial, not ≠
+    expect(type('a!= b').tex).toBe('a\\neq b');
     expect(type('a<=>b').tex).toBe('a\\iff b');
-    expect(type('||v').tex).toBe('\\left\\| v \\right\\|');
+    expect(type('a|b').tex).toBe('a|b'); // divides
+    expect(type('a | b').tex).toBe('a|b'); // space doesn't turn it into a bracket
+    expect(type('|⇥x').tex).toBe('\\left| x \\right|');
+    expect(type('||⇥v').tex).toBe('\\left\\| v \\right\\|');
+    expect(type('[0,1)').tex).toBe('[0,1)');
+    expect(type('[⇥x').tex).toBe('\\left[ x \\right]');
     expect(type('trA').tex).toBe('\\operatorname{tr}A');
     expect(type('AAxEEy').tex).toBe('\\forall x\\exists y');
     expect(type('NN+ZZ+QQ').tex).toBe('\\mathbb{N}+\\mathbb{Z}+\\mathbb{Q}');
@@ -89,7 +117,7 @@ describe('typing', () => {
     expect(type('logx').tex).toBe('\\log_{x}');
     expect(type('vartheta+rt').tex).toBe('\\vartheta+\\sqrt[]{}');
     expect(type('sinhx').tex).toBe('\\sinh x');
-    expect(type('cdots').tex).toBe('\\cdots');
+    expect(type('cdots ').tex).toBe('\\cdots');
   });
   it('a fraction after lim leaves the limit alone', () => {
     const r = type('limx->0');

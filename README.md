@@ -14,10 +14,11 @@ npm run dev                            # http://localhost:5173
 - Typing `$` starts inline math. Typing `$` again in an empty equation on an empty line turns it into display math (`$$…$$`).
 - Inside an equation:
   - `^` and `_` make scripts. `/` makes a fraction and pulls the preceding term into the numerator.
-  - `(`, `[`, `{` and `|` make brackets. Typing the closing character steps out.
+  - `(` and `{` make brackets. Typing the closing character steps out. `[`, `|` and `||` stay bare (intervals like `[0,1)`, "divides"); press Tab right after one to make it a bracket / absolute value / norm.
   - Keywords: `alpha`, `sum`, `int`, `sqrt`, `RR`, `pmat2x3`, `sys2`, `text`, … With **Instant symbols** on (the default), a keyword converts the moment you finish typing it. Words that could still grow wait for the next character: `sin` waits in case you're typing `sinh`, and `sinx` gives `\sin x`. With it off, keywords convert on space or Tab. `\anything` + space works for any command.
   - `sum`, `prod`, `int`, `oint`, `Cup`… come with empty lower and upper limit slots, and `lim` and `log` with a lower one. Slots left empty aren't saved. A `/` typed after a limit doesn't pull the limit into the numerator.
   - The full shortcut table of the original GaussNotes is ported (`src/math/keywords.ts`). Examples: `sr` / `cb` (squared / cubed), `td` / `tt` (exponent slot), `ddx` / `ddel` (derivative fractions), `pii`, `inn`, `too`, `xx`, `AA` / `EE`, `NN` / `RR` / `Exp`, `o++` / `oxx` / `u++`, `sub=` / `not=` / `<=>`, `||` (norm), `vec` / `hat` / `bb` / `cal` / `red`, `tend` (labelled arrow), `tr` / `rank` / `sgn`. The `?` button lists them.
+  - Which keywords convert as you type follows the original exactly (its `isAuto` names and `autoAliases`). Plain aliases such as `pi`, `in`, `to`, `cdot` and `!=` need space or Tab, as do keywords added here that the original didn't have.
   - Keywords whose longer forms mean the same thing (`lim`/`limsup` aside, `int`/`integer`, `tr`/`trace`) convert immediately. Ones that might become something different (`sin`→`sinh`, `del`→`delta`, `pi`→`pii`) wait one character, or convert right away on Tab/space.
   - Shortcuts convert as you type: `<=` `>=` `!=` `->` `=>` `+-` `...`
   - Arrow keys walk the structure. → at the end of any slot (exponent, subscript, numerator, root, brackets, matrix cell, limits) lands just after the whole object, still in the equation; another → leaves it. ← works the same way. ↑/↓ move between numerator and denominator, sub and sup, or matrix rows. Space at the end of a slot steps out of it. `^` at the end of a subscript (or `_` at the end of a superscript) adds the other script beside it rather than nesting it.
@@ -30,6 +31,8 @@ npm run dev                            # http://localhost:5173
 - **⌘K:** describe an equation in words. In text, this inserts a new equation (display math if the line is empty). Inside an equation, it rewrites that equation according to your instruction.
 
 The API key stays on the server. `server/ai.ts` is a Vite plugin that serves `POST /api/complete` and `POST /api/generate` during `npm run dev` and `npm run preview`. Both call DeepSeek-V4.1-Flash (`deepseek-flash`) through DeepSeek's OpenAI-compatible chat endpoint: completion at `low` reasoning effort, generation at `high`. A suggestion takes about 2 seconds. Override with `GAUSS_COMPLETE_MODEL`, `GAUSS_GENERATE_MODEL`, and `GAUSS_AI_BASE_URL` (any OpenAI-compatible endpoint).
+
+LaTeX that comes from the model, the clipboard, or a file is normalized on the way in. Matched `( )`, `[ ]`, `\{ \}` and `\langle \rangle` pairs, and sized ones like `\bigl( \bigr)`, become `\left…\right` structures, so they navigate like brackets you typed. A suggestion that ends by closing the bracket you're in steps out of it rather than adding a stray `)`. If KaTeX rejects the instrumented render (some constructs can't sit inside `\htmlData`), the equation is rendered again with those parts unwrapped, so it stays editable.
 
 ## How it works
 

@@ -72,7 +72,7 @@ def('and wedge', s('\\wedge'));
 def('orr or vee', s('\\vee'));
 def('larr leftarrow larrow gets', s('\\leftarrow'));
 def('rarr rightarrow rarrow too to', s('\\to'));
-def('neq not=', s('\\neq'));
+def('neq not= !=', s('\\neq'));
 def('approx', s('\\approx'));
 def('~= cong', s('\\cong'));
 def('-= equiv', s('\\equiv'));
@@ -174,9 +174,9 @@ def('txt text', wrap('text'));
 def('bb blackboard', wrap('mathbb'));
 def('cal calligraphy', wrap('mathcal'));
 for (const c of ['red', 'blue', 'green', 'yellow']) def(c, () => cmd('textcolor', 1, { env: c }));
-def('abs lvert', delim('|', '|'));
-def('bracket lbracket', delim('[', ']'));
-def('norm lVert llvert', delim('\\|', '\\|'));
+def('| abs lvert', delim('|', '|'));
+def('[ bracket lbracket', delim('[', ']'));
+def('|| norm lVert llvert', delim('\\|', '\\|'));
 def('bra', delim('\\langle', '|'));
 def('ket', delim('|', '\\rangle'));
 def('ang angle langle', delim('\\langle', '\\rangle'));
@@ -187,35 +187,45 @@ def('qquad', s('\\qquad'));
 
 const MATRIX = /^(p|b|v|B|V)?(mat|sys)(\d)(?:x(\d))?$/;
 
-// Too often ordinary letters (x in A, f to g…) to convert without space/Tab.
-const NO_AUTO = new Set(['in', 'to', 'or', 'ni', 'notni', 'im', 'ell']);
-// Convert at once even though longer keywords start with them: the longer ones are mostly
-// spelled-out aliases (int → integer, tr → trace). \limsup etc. remain typeable with a backslash.
-const EAGER = new Set(['lim', 'int', 'exp', 'card', 'tr', 'pow', 'union', 'cal', 'dag', 'empty', 'larr', 'rarr', 'lrarr', 'ang', 'Ox', 'lap']);
+// Which keywords convert as you type: exactly the original GaussNotes isAuto names and
+// autoAliases. Plain aliases (pi, in, to, cdot, abs…), '|' and '[' (needed bare for
+// "divides" and intervals), and anything added here that wasn't in the original
+// convert only on space/Tab.
+const INSTANT = new Set(
+  `bra ket ang nEE grad nabla partial inn subs sub= sups empty emptyset varnothing cup cap u++ uplus sqcup
+  and wedge orr vee approx cong equiv oo infty xx times o++ o.. odot oxx otimes sr cb +- -+ AA forall
+  NN ZZ QQ RR CC HH FF PP Exp EE iff implies sim impliedby ddx ddel
+  alpha beta gamma delta epsilon vepsilon varepsilon zeta eta theta vtheta vartheta iota kappa lambda mu nu
+  xii pii vpii varpi rho vrho varrho sigma vsigma varsigma tau upsilon phi vphi varphi chi psii omega
+  Gamma Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega hbar Im Re jhat ihat inf supp max min arg
+  td tt flr ciel ln exp sin cos tan cot sec csc asin acos atan sinh cosh tanh coth det tr rank sgn dim ker
+  dag dagger span card mod gcd lcm sqrt rt tend frac sum prod int iint iiint oint oiint oiiint
+  Cup bigcup Cap bigcap U++ biguplus Vee bigvee And bigwedge Sqcup bigsqcup O++ bigoplus Oxx bigotimes
+  O.. bigodot log lim binom hat bar vec dot ddot tilde overline overbrace underline underbrace
+  bf fk frak rm roman txt text bb red blue green yellow cal mapsto too rightarrow rarrow`.split(/\s+/),
+);
+// Convert at once although a longer instant keyword starts with them (same symbol either way).
+const EAGER = new Set(['dag', 'empty']);
 const MATRIX_PREFIX = /^[pbvBV]?(m|ma|mat|s|sy|sys)$/;
 
-const waits = (name: string) => {
-  if (EAGER.has(name)) return false;
-  for (const k of K.keys()) if (k !== name && k.startsWith(name)) return true;
-  return false;
-};
+const instantPrefix = (prefix: string) => [...INSTANT].some((k) => k.startsWith(prefix));
+const waits = (name: string) => !EAGER.has(name) && [...INSTANT].some((k) => k !== name && k.startsWith(name));
 
 /** Keyword for `name` if it should convert as soon as it's typed. */
 export function autoKeyword(name: string): KW | null {
-  if (name.length < 2 || NO_AUTO.has(name) || MATRIX_PREFIX.test(name) || waits(name)) return null;
+  if (!INSTANT.has(name) || MATRIX_PREFIX.test(name) || waits(name)) return null;
   return keyword(name);
 }
 
-/** A keyword that was waiting (sin, del…) and can no longer grow once `next` is typed after it. */
+/** An instant keyword that was waiting (sin, inf…) and can no longer grow once `next` is typed after it. */
 export function settledKeyword(word: string, next: string): boolean {
-  if (word.length < 2 || NO_AUTO.has(word) || !K.has(word) || MATRIX_PREFIX.test(word)) return false;
-  return !isKeywordPrefix(word + next);
+  return INSTANT.has(word) && !instantPrefix(word + next);
 }
 
 /** True if some keyword starts with `prefix` (so what's being typed may still become it). */
 export const isKeywordPrefix = (prefix: string) => [...K.keys()].some((k) => k.startsWith(prefix));
 
-/** Length of the longest suffix of `word` that some keyword starts with: the word still being typed. */
+/** Length of the longest suffix of `word` that some keyword starts with: the word still being typed (cdot…, varth…). */
 export function growingSuffix(word: string): number {
   for (let len = word.length; len > 0; len--) if (isKeywordPrefix(word.slice(word.length - len))) return len;
   return 0;
@@ -223,7 +233,7 @@ export function growingSuffix(word: string): number {
 
 /** Keywords containing symbols (u++, sub=, not=…) convert the moment they're complete. */
 export function symbolKeyword(name: string): KW | null {
-  return /[^a-zA-Z]/.test(name) && K.has(name) ? keyword(name) : null;
+  return /[^a-zA-Z]/.test(name) && INSTANT.has(name) ? keyword(name) : null;
 }
 
 export function keyword(name: string): KW | null {
@@ -240,19 +250,16 @@ export function keyword(name: string): KW | null {
   return null;
 }
 
-/** Symbol sequences that convert immediately, longest first (always on, like the original's +-, <=, =>). */
+/** Symbol sequences that convert immediately, longest first (the original's auto <= >= << >> =>, plus -> and ...). */
 export const AUTO: [string[], string][] = [
   [['.', '.', '.'], '\\ldots'],
   [['\\leq', '>'], '\\iff'], // <=>
   [['<', '='], '\\leq'],
   [['>', '='], '\\geq'],
-  [['!', '='], '\\neq'],
   [['-', '>'], '\\to'],
   [['=', '>'], '\\Rightarrow'],
   [['+', '-'], '\\pm'],
   [['-', '+'], '\\mp'],
-  [['\\sim', '\\sim'], '\\approx'],
-  [['\\sim', '='], '\\cong'],
   [['<', '<'], '\\ll'],
   [['>', '>'], '\\gg'],
 ];

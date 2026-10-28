@@ -144,7 +144,7 @@ function settledSuffix(word: string, next: string): number {
 }
 
 /** Convert the word before the cursor into a keyword. `anySuffix` allows "xalpha" → x·α. */
-export function completeWord(root: Row, c: Cursor, anySuffix: boolean): Cursor | null {
+export function completeWord(root: Row, c: Cursor, anySuffix: boolean, tab = false): Cursor | null {
   if (isTextRow(root, c.path)) return null;
   const row = rowAt(root, c.path);
   const n = letterRun(root, c);
@@ -166,8 +166,10 @@ export function completeWord(root: Row, c: Cursor, anySuffix: boolean): Cursor |
   if (anySuffix) {
     // Space/Tab: the longest keyword ending at the cursor, symbols included (sub=, u++).
     const m = charRun(root, c);
-    for (let len = m; len >= 2; len--) {
-      const kw = keyword(text(row, c.off - len, c.off));
+    for (let len = m; len >= 1; len--) {
+      const w = text(row, c.off - len, c.off);
+      if (!tab && /^[|[]+$/.test(w)) continue; // bare | and [ become brackets on Tab only ("a | b" stays)
+      const kw = keyword(w);
       if (kw) return place(root, c, kw, c.off - len);
     }
     return null;
@@ -188,7 +190,9 @@ function autoReplace(root: Row, c: Cursor): Cursor {
 }
 
 const CLOSERS: Record<string, string> = { ')': ')', ']': ']', '}': '\\}', '|': '|' };
-const OPENERS: Record<string, [string, string]> = { '(': ['(', ')'], '[': ['[', ']'], '{': ['\\{', '\\}'], '|': ['|', '|'] };
+// Typed brackets that auto-close, as in the original: '[' and '|' stay bare (intervals, "divides")
+// and become brackets only on space/Tab.
+const OPENERS: Record<string, [string, string]> = { '(': ['(', ')'], '{': ['\\{', '\\}'] };
 
 /** Type one character at the cursor. */
 export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
@@ -205,11 +209,6 @@ export function typeChar(root: Row, c: Cursor, ch: string): Cursor {
   const row = rowAt(root, c.path);
 
   const owner = ownerOf(root, c.path);
-  // || : a second bar right inside an empty |·| makes it a norm.
-  if (ch === '|' && owner?.name === 'delim' && owner.open === '|' && owner.close === '|' && !row.length) {
-    owner.open = owner.close = '\\|';
-    return c;
-  }
   // Closing a bracket we're inside of jumps out of it.
   if (owner?.name === 'delim' && CLOSERS[ch] && owner.close === CLOSERS[ch]) {
     const parent = c.path.slice(0, -1);

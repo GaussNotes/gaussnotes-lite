@@ -10,8 +10,9 @@ export const TWO_ARG = new Set(['frac', 'dfrac', 'tfrac', 'binom', 'overset', 'u
 export const ONE_ARG = new Set([
   'sqrt', 'hat', 'bar', 'vec', 'dot', 'ddot', 'tilde', 'widehat', 'widetilde', 'overline', 'underline',
   'overbrace', 'underbrace', 'overrightarrow', 'mathbf', 'mathbb', 'mathcal', 'mathrm', 'mathit', 'mathfrak',
-  'mathsf', 'mathscr', 'boldsymbol', 'bm', 'operatorname', 'boxed', 'cancel', 'pmb',
+  'mathsf', 'mathscr', 'boldsymbol', 'bm', 'operatorname', 'boxed', 'cancel', 'pmb', 'mod', 'pmod',
 ]);
+const SIZED = /^(big|Big|bigg|Bigg)[lrm]?$|^middle$/;
 const TEXT_CMDS = new Set(['text', 'textrm', 'textbf', 'textit', 'mbox', 'textsf', 'texttt']);
 export const MATRIX_ENVS = new Set(['matrix', 'pmatrix', 'bmatrix', 'Bmatrix', 'vmatrix', 'Vmatrix', 'smallmatrix', 'cases', 'aligned', 'gathered']);
 
@@ -25,6 +26,8 @@ interface Ctx {
   cursor?: Cursor | null;
   ghost?: Row | null;
   display?: boolean;
+  /** Fallback render: leave command symbols and raw LaTeX unwrapped (some can't sit inside \htmlData). */
+  safe?: boolean;
 }
 
 function cat(a: string, b: string): string {
@@ -81,10 +84,11 @@ function emitRow(row: Row, path: Step[], ctx: Ctx, textMode = false): string {
 }
 
 function emitNode(node: MNode, path: Step[], i: number, ctx: Ctx, wrap: (s: string) => string): string {
-  if (node.k === 'raw') return wrap(node.tex);
+  if (node.k === 'raw') return ctx.safe ? node.tex : wrap(node.tex);
   if (node.k === 'sym') {
     const tex = node.tex === '\\' ? '\\backslash' : node.tex;
     if (!ctx.map) return tex;
+    if (ctx.safe && tex.startsWith('\\') && atomClass(tex) === 'ord') return tex;
     switch (atomClass(tex)) {
       case 'bin': return `\\mathbin{${wrap(tex)}}`;
       case 'rel': return `\\mathrel{${wrap(tex)}}`;
@@ -123,9 +127,9 @@ function emitNode(node: MNode, path: Step[], i: number, ctx: Ctx, wrap: (s: stri
 
 export const toTex = (row: Row) => emitRow(row, [], {}).trim();
 
-export function toInstrumentedTex(row: Row, cursor: Cursor | null, ghost: Row | null, display = false): { tex: string; map: RenderMap } {
+export function toInstrumentedTex(row: Row, cursor: Cursor | null, ghost: Row | null, display = false, safe = false): { tex: string; map: RenderMap } {
   const map: RenderMap = { nodes: [], rows: [] };
-  return { tex: emitRow(row, [], { map, cursor, ghost, display }), map };
+  return { tex: emitRow(row, [], { map, cursor, ghost, display, safe }), map };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +275,10 @@ class Parser {
       return [{ k: 'cmd', name, slots: [a] }];
     }
     if (name === 'right' || name === 'end') throw new Error(`unexpected \\${name}`);
+    // Display mode already sets limits under operators; these can't follow a wrapped symbol.
+    if (name === 'limits' || name === 'nolimits') return [];
+    // \bigl( and \middle| are one delimiter token, not a command plus a symbol.
+    if (SIZED.test(name)) return [sym('\\' + name + this.readDelim())];
     // Unknown command with arguments: keep verbatim.
     const save = this.i;
     this.ws();
@@ -309,13 +317,41 @@ class Parser {
   }
 }
 
+// Matched bracket pairs become \left…\right structures, like brackets typed in the editor,
+// so AI output, pasted LaTeX and opened files navigate the same way.
+const PAIRS: Record<string, string> = {
+  '(': ')', '[': ']', '\\{': '\\}', '\\lbrace': '\\rbrace', '\\langle': '\\rangle',
+  '\\lvert': '\\rvert', '\\lVert': '\\rVert', '\\lfloor': '\\rfloor', '\\lceil': '\\rceil',
+};
+/** Delimiter without a size prefix: \bigl( → (. */
+export const bareDelim = (tex: string) => tex.replace(/^\\(big|Big|bigg|Bigg)[lrm]?(?![a-zA-Z])/, '');
+
+export function pairBrackets(row: Row): Row {
+  const out: Row = [];
+  const stack: { pos: number; open: string; close: string }[] = [];
+  for (const n of row) {
+    if (n.k === 'cmd') n.slots = n.slots.map(pairBrackets);
+    const t = n.k === 'sym' ? bareDelim(n.tex) : null;
+    const top = stack[stack.length - 1];
+    if (t && PAIRS[t]) {
+      stack.push({ pos: out.length, open: t, close: PAIRS[t] });
+      out.push(n);
+    } else if (t && top && t === top.close) {
+      const inner = out.splice(top.pos + 1);
+      out.pop();
+      stack.pop();
+      out.push({ k: 'cmd', name: 'delim', open: top.open, close: top.close, slots: [inner] });
+    } else out.push(n);
+  }
+  return out;
+}
+
 export function parseTex(src: string): Row {
   const s = src.trim();
   if (!s) return [];
   try {
     const p = new Parser(s);
-    const row = p.row(() => false);
-    return row;
+    return pairBrackets(p.row(() => false));
   } catch {
     return [{ k: 'raw', tex: s }];
   }

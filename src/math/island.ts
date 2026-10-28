@@ -1,7 +1,7 @@
 import katex from 'katex';
 import { backspace, completeWord, del, endOf, insertRow, moveLeft, moveRight, space, typeChar, verticalTarget } from './editing';
-import { parseTex, type RenderMap, toInstrumentedTex, toTex } from './latex';
-import { type Cursor, isScript, isTextRow, pathKey, type Row, rowAt, type Step } from './model';
+import { bareDelim, parseTex, type RenderMap, toInstrumentedTex, toTex } from './latex';
+import { type Cursor, isScript, isTextRow, ownerOf, pathKey, type Row, rowAt, type Step } from './model';
 
 export type Dir = 'left' | 'right' | 'up' | 'down';
 
@@ -59,6 +59,20 @@ function inkBox(el: Element): Box | null {
   return box;
 }
 
+/**
+ * Insert nodes at the cursor. A lone closing bracket that matches the bracket the cursor is in
+ * (a completion of "(a+" that ends in "b)") steps out of it instead of being inserted.
+ */
+function insertWithClosers(root: Row, c: Cursor, nodes: Row): Cursor {
+  const owner = ownerOf(root, c.path);
+  const j = owner?.name === 'delim' ? nodes.findIndex((n) => n.k === 'sym' && bareDelim(n.tex) === owner.close) : -1;
+  if (j < 0) return insertRow(root, c, nodes);
+  insertRow(root, c, nodes.slice(0, j));
+  const parent = c.path.slice(0, -1);
+  const after: Cursor = { path: parent, off: c.path[c.path.length - 1][0] + 1 };
+  return insertWithClosers(root, after, nodes.slice(j + 1));
+}
+
 export class MathIsland {
   root: Row;
   cursor: Cursor | null = null;
@@ -97,16 +111,26 @@ export class MathIsland {
   }
 
   render() {
-    const { tex, map } = toInstrumentedTex(this.root, this.cursor, this.ghost, this.display);
-    this.map = map;
     const opts = { displayMode: this.display, trust: true, strict: 'ignore' as const, output: 'html' as const };
-    try {
-      katex.render(tex, this.content, { ...opts, throwOnError: true });
-      this.el.classList.remove('error');
-    } catch {
-      katex.render(toTex(this.root), this.content, { ...opts, throwOnError: false });
-      this.el.classList.add('error');
+    // Instrumented render; if KaTeX rejects a wrapped construct, retry with risky pieces unwrapped
+    // (still editable), and only show the error state if even plain LaTeX fails.
+    let map: RenderMap | null = null;
+    for (const safe of [false, true]) {
+      const r = toInstrumentedTex(this.root, this.cursor, this.ghost, this.display, safe);
+      try {
+        katex.render(r.tex, this.content, { ...opts, throwOnError: true });
+        map = r.map;
+        break;
+      } catch {
+        /* try the next mode */
+      }
     }
+    this.el.classList.toggle('error', !map);
+    if (!map) {
+      map = { nodes: [], rows: [] };
+      katex.render(toTex(this.root), this.content, { ...opts, throwOnError: false });
+    }
+    this.map = map;
     this.rows.clear();
     this.els.clear();
     map.nodes.forEach(({ path }, id) => {
@@ -285,14 +309,14 @@ export class MathIsland {
 
   acceptGhost() {
     if (!this.ghost || !this.cursor) return;
-    this.cursor = insertRow(this.root, this.cursor, this.ghost);
+    this.cursor = insertWithClosers(this.root, this.cursor, this.ghost);
     this.ghost = null;
     this.commit(false);
   }
 
   insertTex(tex: string) {
     if (!this.cursor) return;
-    this.cursor = insertRow(this.root, this.cursor, parseTex(tex));
+    this.cursor = insertWithClosers(this.root, this.cursor, parseTex(tex));
     this.commit();
   }
 
@@ -391,7 +415,7 @@ export class MathIsland {
       case 'Tab':
         if (this.ghost) this.acceptGhost();
         else if (!e.shiftKey) {
-          const done = isTextRow(this.root, c.path) ? null : completeWord(this.root, c, true);
+          const done = isTextRow(this.root, c.path) ? null : completeWord(this.root, c, true, true);
           if (done) {
             this.cursor = done;
             this.commit();
