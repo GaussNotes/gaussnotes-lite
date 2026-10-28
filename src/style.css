@@ -78,7 +78,9 @@ body { margin: 0; transition: background-color 0.2s; }
 .ai-status { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .ai-status.idle { background: var(--ok); }
 .ai-status.busy { background: var(--accent); animation: pulse 0.9s infinite alternate; }
-.ai-status.offline, .ai-status.error { background: var(--error); }
+.ai-status.offline, .ai-status.error, .ai-status.spent { background: var(--error); }
+.ai-quota { color: var(--muted); font-variant-numeric: tabular-nums; }
+.ai-quota.low { color: var(--error); }
 @keyframes pulse { to { opacity: 0.3; } }
 
 main { padding: 40px 16px 120px; }

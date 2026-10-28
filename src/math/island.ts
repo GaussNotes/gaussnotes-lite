@@ -10,6 +10,7 @@ export interface IslandHost {
   remove(island: MathIsland): void;
   changed(island: MathIsland): void;
   wantsCompletion(island: MathIsland): void;
+  acceptedSuggestion(): void;
   toDisplay(island: MathIsland): boolean;
   commandK(): void;
   undo(): void;
@@ -344,6 +345,7 @@ export class MathIsland {
     if (!this.ghost || !this.cursor) return;
     this.cursor = insertWithClosers(this.root, this.cursor, this.ghost);
     this.ghost = null;
+    this.host.acceptedSuggestion();
     this.commit(false);
   }
 

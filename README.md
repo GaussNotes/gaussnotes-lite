@@ -40,9 +40,28 @@ npm run dev                            # http://localhost:5173
 - **Ghost completion:** when you pause while typing an equation, the model is asked what to insert at the cursor. The answer shows in gray. **Tab** accepts it, typing a matching character keeps the rest of it, and anything else dismisses it. Turn it off with the *Autocomplete* toggle.
 - **⌘K:** describe an equation in words. In text, this inserts a new equation (display math if the line is empty). Inside an equation, it rewrites that equation according to your instruction.
 
-The API key stays on the server. `server/ai.ts` is a Vite plugin that serves `POST /api/complete` and `POST /api/generate` during `npm run dev` and `npm run preview`. Both call DeepSeek-V4.1-Flash (`deepseek-flash`) through DeepSeek's OpenAI-compatible chat endpoint: completion at `low` reasoning effort, generation at `high`. A suggestion takes about 2 seconds. Override with `GAUSS_COMPLETE_MODEL`, `GAUSS_GENERATE_MODEL`, and `GAUSS_AI_BASE_URL` (any OpenAI-compatible endpoint).
+The API key stays on the server. `server/core.ts` handles the AI requests; `server/ai.ts` mounts it into Vite (serving `POST /api/complete` and `POST /api/generate` during `npm run dev` and `npm run preview`), and `api/` exposes it as Vercel functions. Both call DeepSeek-V4.1-Flash (`deepseek-flash`) through DeepSeek's OpenAI-compatible chat endpoint: completion at `low` reasoning effort, generation at `high`. A suggestion takes about 2 seconds. Override with `GAUSS_COMPLETE_MODEL`, `GAUSS_GENERATE_MODEL`, and `GAUSS_AI_BASE_URL` (any OpenAI-compatible endpoint).
 
 LaTeX that comes from the model, the clipboard, or a file is normalized on the way in. Matched `( )`, `[ ]`, `\{ \}` and `\langle \rangle` pairs, and sized ones like `\bigl( \bigr)`, become `\left…\right` structures, so they navigate like brackets you typed. A suggestion that ends by closing the bracket you're in steps out of it rather than adding a stray `)`. If KaTeX rejects the instrumented render (some constructs can't sit inside `\htmlData`), the equation is rendered again with those parts unwrapped, so it stays editable.
+
+## Deploying (Vercel)
+
+The editor is a static build. The AI endpoints are Vercel functions in `api/` that share `server/core.ts` with the dev server, so the key stays server-side.
+
+1. Import the repo in Vercel. It detects Vite: build `npm run build`, output `dist`.
+2. Set `DEEPSEEK_API_KEY` in the project's environment variables.
+3. Add **Upstash Redis** from the Vercel Marketplace (free tier) so the demo allowance is shared across function instances. It injects `KV_REST_API_URL` / `KV_REST_API_TOKEN`. Without it, the counters are per instance and reset often.
+
+Demo allowance on Vercel (unlimited when running locally). All values can be overridden by env var:
+
+| Env var | Default on Vercel | Meaning |
+|---|---|---|
+| `GAUSS_DEMO_COMPLETIONS` | 20 | completions per visitor per day: accepted suggestions (Tab) and ⌘K generations |
+| `GAUSS_DEMO_REQUESTS` | 100 | AI requests per visitor per day, accepted or not (backstop) |
+| `GAUSS_DEMO_GLOBAL_DAILY` | 500 | AI requests per day for the whole site (bounds the bill) |
+| `GAUSS_DEMO_WINDOW_HOURS` | 24 | length of the per-visitor window |
+
+Visitors are identified by IP. The toolbar shows how many completions are left, and once they're used up the editor stops sending AI requests.
 
 ## How it works
 

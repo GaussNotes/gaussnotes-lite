@@ -1,4 +1,4 @@
-import { cleanLatex, complete, generate } from '../ai';
+import { aiSpent, cleanLatex, complete, generate, reportAccepted } from '../ai';
 import { type Dir, type IslandHost, MathIsland } from '../math/island';
 import { parseTex, toTex } from '../math/latex';
 import { type Cursor, pathKey, rowAt, sym } from '../math/model';
@@ -529,9 +529,13 @@ export class DocEditor implements IslandHost {
     this.ghostAbort = null;
   }
 
+  acceptedSuggestion() {
+    void reportAccepted();
+  }
+
   wantsCompletion(isl: MathIsland) {
     this.cancelGhost();
-    if (!this.opts.aiEnabled() || !isl.cursor || !isl.root.length) return;
+    if (!this.opts.aiEnabled() || aiSpent() || !isl.cursor || !isl.root.length) return;
     this.ghostTimer = window.setTimeout(() => this.fetchGhost(isl), 450);
   }
 

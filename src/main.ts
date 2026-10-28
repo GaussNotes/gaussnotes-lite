@@ -1,6 +1,6 @@
 import 'katex/dist/katex.min.css';
 import './style.css';
-import { onAiStatus } from './ai';
+import { loadQuota, onAiStatus, onQuota } from './ai';
 import { DocEditor } from './doc/document';
 import { settings } from './math/editing';
 
@@ -221,11 +221,22 @@ onAiStatus((s, msg) => {
   const el = $('ai-status');
   el.className = `ai-status ${s}`;
   el.title = msg ?? `AI: ${s}`;
-  if ((s === 'offline' || s === 'error') && msg && !warned) {
+  if ((s === 'offline' || s === 'error' || s === 'spent') && msg && !warned) {
     warned = true;
     flash(msg);
   }
 });
+// Demo allowance: "14 AI left" next to the status dot (hidden when unlimited).
+onQuota((q) => {
+  const el = $('ai-quota');
+  el.hidden = q.limit === null;
+  if (q.limit === null) return;
+  const left = Math.max(q.limit - q.used, 0);
+  el.textContent = `${left} AI left`;
+  el.title = `This demo includes ${q.limit} AI completions (accepted suggestions and ⌘K). ${left} left.`;
+  el.classList.toggle('low', left <= 3);
+});
+void loadQuota();
 
 const numbering = $<HTMLInputElement>('number-toggle');
 numbering.checked = localStorage.getItem('gn-numbered') !== '0';
