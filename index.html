@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GaussNotes Lite</title>
+  </head>
+  <body>
+    <header class="bar">
+      <span class="brand">Gauss<b>Notes</b></span>
+      <span id="filename" class="filename">Untitled.md</span>
+      <span class="spacer"></span>
+      <button id="new" title="New document">New</button>
+      <button id="open" title="Open markdown (⌘O)">Open</button>
+      <button id="save" title="Save (⌘S)">Save</button>
+      <label class="toggle" title="AI ghost-text completions while typing equations">
+        <input id="ai-toggle" type="checkbox" checked /> Autocomplete
+      </label>
+      <span id="ai-status" class="ai-status idle" title="AI status"></span>
+      <button id="help-btn" title="Shortcuts">?</button>
+    </header>
+    <main>
+      <div id="doc" class="doc"></div>
+    </main>
+    <textarea id="math-input" class="math-input" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Equation input"></textarea>
+    <div id="prompt" class="prompt" hidden>
+      <input id="prompt-input" type="text" placeholder="Describe an equation…" />
+      <span class="prompt-hint">↵ to generate · esc to cancel</span>
+    </div>
+    <div id="flash" class="flash" hidden></div>
+    <dialog id="help">
+      <h3>Writing</h3>
+      <p>Plain markdown text. <kbd>$</kbd> starts inline math; <kbd>$</kbd> again on an empty line makes it display math. <kbd>⌘K</kbd> describes an equation in words.</p>
+      <h3>In an equation</h3>
+      <table>
+        <tr><td><kbd>^</kbd> <kbd>_</kbd></td><td>superscript / subscript</td></tr>
+        <tr><td><kbd>/</kbd></td><td>fraction (takes the preceding term)</td></tr>
+        <tr><td><kbd>(</kbd> <kbd>[</kbd> <kbd>{</kbd> <kbd>|</kbd></td><td>brackets — type the closer to step out</td></tr>
+        <tr><td><code>alpha</code> <code>sum</code> <code>int</code> <code>sqrt</code> <code>RR</code> … <kbd>space</kbd></td><td>keywords; <code>\anything</code> <kbd>space</kbd> for any command</td></tr>
+        <tr><td><code>pmat2x3</code> <code>sys2</code> <code>text</code></td><td>matrices, cases, text</td></tr>
+        <tr><td><code>&lt;=</code> <code>!=</code> <code>-&gt;</code> <code>+-</code></td><td>≤ ≠ → ±</td></tr>
+        <tr><td><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></td><td>move through the structure; click anywhere to place the cursor</td></tr>
+        <tr><td><kbd>space</kbd> at the end of a slot</td><td>step out of it</td></tr>
+        <tr><td><kbd>Tab</kbd></td><td>accept the gray suggestion</td></tr>
+        <tr><td><kbd>Esc</kbd> <kbd>↵</kbd> <kbd>$</kbd></td><td>leave the equation</td></tr>
+        <tr><td><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></td><td>undo / redo (text and math)</td></tr>
+      </table>
+      <form method="dialog"><button>Close</button></form>
+    </dialog>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

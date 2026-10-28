@@ -1,0 +1,98 @@
+:root {
+  --ink: #1d1f23;
+  --muted: #8a8f98;
+  --line: #e7e8eb;
+  --accent: #3b6cf6;
+  --accent-soft: rgba(59, 108, 246, 0.08);
+  --paper: #fff;
+  --bg: #f6f6f4;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+
+.bar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 18px;
+  background: rgba(246, 246, 244, 0.92); backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  font: 13px/1 -apple-system, system-ui, sans-serif;
+}
+.brand { font-size: 15px; letter-spacing: 0.01em; }
+.brand b { color: var(--accent); }
+.filename { color: var(--muted); }
+.filename.dirty::after { content: ' •'; color: var(--accent); }
+.spacer { flex: 1; }
+.bar button {
+  font: inherit; padding: 5px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--paper); cursor: pointer;
+}
+.bar button:hover { border-color: #cfd2d8; }
+.toggle { display: flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
+.ai-status { width: 8px; height: 8px; border-radius: 50%; background: #b9c9b9; }
+.ai-status.idle { background: #46b46e; }
+.ai-status.busy { background: var(--accent); animation: pulse 0.9s infinite alternate; }
+.ai-status.offline, .ai-status.error { background: #d9534f; }
+@keyframes pulse { to { opacity: 0.3; } }
+
+main { padding: 40px 16px 120px; }
+.doc {
+  max-width: 760px; margin: 0 auto; min-height: 70vh;
+  padding: 56px 72px; background: var(--paper);
+  border: 1px solid var(--line); border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  font-size: 18px; line-height: 1.65;
+  outline: none; caret-color: var(--accent);
+}
+.blk { white-space: pre-wrap; min-height: 1.65em; margin: 0 0 0.55em; }
+.blk.h1 { font-size: 1.9em; line-height: 1.25; margin: 0.4em 0 0.5em; font-weight: 600; }
+.blk.h2 { font-size: 1.45em; line-height: 1.3; margin: 0.8em 0 0.4em; font-weight: 600; }
+.blk.h3 { font-size: 1.2em; margin: 0.6em 0 0.3em; font-weight: 600; }
+.blk.quote { border-left: 3px solid var(--line); padding-left: 14px; color: #555; }
+
+.math { position: relative; cursor: text; border-radius: 3px; user-select: none; -webkit-user-select: none; }
+span.math { display: inline-block; padding: 0 1px; }
+div.math.display { display: block; margin: 0.4em 0 0.9em; padding: 2px 0; }
+.math .katex-display { margin: 0.3em 0; }
+.math:hover { background: rgba(0, 0, 0, 0.025); }
+.math.active { background: var(--accent-soft); box-shadow: 0 0 0 1px rgba(59, 108, 246, 0.25); }
+.math.error .katex { color: #c0392b; }
+.math.loading { animation: pulse 0.7s infinite alternate; }
+.math .gn-ph { color: #b8bcc4; }
+.math .gn-ghost { color: #a8adb6; opacity: 0.85; }
+.m-caret {
+  position: absolute; display: none; width: 1.5px; background: var(--accent);
+  pointer-events: none; animation: blink 1.05s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.math-input {
+  position: absolute; width: 1px; height: 1px; opacity: 0; padding: 0; border: 0;
+  resize: none; overflow: hidden; pointer-events: none;
+}
+
+.prompt {
+  position: absolute; z-index: 20; width: min(520px, 90vw);
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; background: var(--paper);
+  border: 1px solid #d5d8de; border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  font: 14px -apple-system, system-ui, sans-serif;
+}
+.prompt input { flex: 1; border: 0; outline: none; font: inherit; }
+.prompt-hint { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+.flash {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  padding: 8px 14px; border-radius: 6px; background: #2b2d31; color: #fff;
+  font: 13px -apple-system, system-ui, sans-serif;
+}
+
+dialog { border: 1px solid var(--line); border-radius: 8px; font: 14px/1.5 -apple-system, system-ui, sans-serif; max-width: 560px; }
+dialog h3 { margin: 0.6em 0 0.3em; }
+dialog td { padding: 3px 10px 3px 0; vertical-align: top; }
+kbd, code { font: 12px ui-monospace, Menlo, monospace; background: #f1f2f4; border-radius: 4px; padding: 1px 5px; }
